@@ -63,7 +63,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           body_path: release-notes.md
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: false
 
       - name: Create GitHub Release with generated notes
         if: steps.notes.outputs.found != 'true'
@@ -72,4 +72,4 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: false
