@@ -23,5 +23,18 @@ jobs:
       - name: Upgrade npm
         run: npm install -g npm@latest
 
+      - name: Check whether this version is already published
+        id: exists
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "版本: $VERSION"
+          if npm view "@xsok/dsh-enhanced@$VERSION" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "该版本已存在，跳过发布"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish
+        if: steps.exists.outputs.published != 'true'
         run: npm publish --provenance --access public --tag latest
