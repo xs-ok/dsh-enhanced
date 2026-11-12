@@ -1,0 +1,73 @@
+{
+  "name": "@xsok/dsh-enhanced",
+  "version": "0.2.2-4",
+  "description": "DeepSeek Harness 增强插件：会话删除与找回、跨工作区移动、全库内容搜索、自动加载历史，以及多设备同步（本地目录 / WebDAV）。",
+  "type": "module",
+  "license": "MIT",
+  "author": "xsok",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "session",
+    "sync",
+    "webdav",
+    "search"
+  ],
+  "engines": {
+    "dsh": ">=0.2.2-rc.1"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "host/trash.js",
+    "host/search.js",
+    "host/move.js",
+    "host/sync.js",
+    "host/schedule.js",
+    "host/restart.js",
+    "host/overwrite.js",
+    "host/trashsync.js",
+    "host/webdav.js",
+    "host/mirror.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/en.json",
+    "locale/zh.json",
+    "icon.svg",
+    "host/engine/index.js",
+    "host/engine/scan.js",
+    "host/engine/zstd.js",
+    "host/engine/session.js",
+    "host/engine/paths.js",
+    "host/engine/sessions.js",
+    "host/engine/workspace.js",
+    "host/engine/archive.js",
+    "host/engine/projcache.js",
+    "host/engine/config.js",
+    "host/engine/pluginlist.js",
+    "host/engine/attachments.js",
+    "host/engine/prune.js",
+    "host/engine/atomic.js",
+    "host/engine/ledger.js",
+    "host/envcheck.js",
+    "CHANGELOG.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": false,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  }
+}
