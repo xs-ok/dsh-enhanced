@@ -1,6 +1,6 @@
 {
   "name": "@xsok/dsh-enhanced",
-  "version": "0.2.2-5",
+  "version": "0.2.2-6",
   "description": "DeepSeek Harness 增强插件：会话删除与找回、跨工作区移动、全库内容搜索、自动加载历史，以及多设备同步（本地目录 / WebDAV）。",
   "type": "module",
   "license": "MIT",
