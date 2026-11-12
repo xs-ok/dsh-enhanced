@@ -5,6 +5,14 @@
   "type": "module",
   "license": "MIT",
   "author": "xsok",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xs-ok/dsh-enhanced.git"
+  },
+  "homepage": "https://github.com/xs-ok/dsh-enhanced#readme",
+  "bugs": {
+    "url": "https://github.com/xs-ok/dsh-enhanced/issues"
+  },
   "keywords": [
     "dsh",
     "deepseek-harness",
