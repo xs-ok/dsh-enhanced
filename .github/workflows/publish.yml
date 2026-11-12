@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -38,3 +38,38 @@ jobs:
       - name: Publish
         if: steps.exists.outputs.published != 'true'
         run: npm publish --provenance --access public --tag latest
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            $0 ~ "^## " ver "([[:space:]]|$)" { flag=1; next }
+            flag && /^## / { exit }
+            flag { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ -s release-notes.md ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "已从 CHANGELOG 提取版本说明"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "CHANGELOG 中没有该版本，将使用自动生成的说明"
+          fi
+
+      - name: Create GitHub Release from CHANGELOG
+        if: steps.notes.outputs.found == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+      - name: Create GitHub Release with generated notes
+        if: steps.notes.outputs.found != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

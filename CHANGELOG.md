@@ -2,6 +2,13 @@
 
 版本号前三位对应主程序版本，最后一段是插件自身的发布序号。
 
+## 0.2.2-5
+
+### 改进
+
+- 包元数据补充 `repository`、`homepage`、`bugs`，npm 页面可直接跳转 GitHub 仓库。
+- 发布流程迁移到 GitHub Actions：推送 tag 后自动发布，使用 OIDC 可信发布并附带 provenance 证明。
+
 ## 0.2.2-4
 
 ### 改进
