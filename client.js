@@ -2131,7 +2131,7 @@ const displayName = (value) => {
               onClick: () => runtime.store.openRestart(),
             }, runtime.t('restart.button')),
           ),
-          h('button', {
+          state.sync.showLog === true ? null : h('button', {
             type: 'button',
             className: 'dshe-row-desc dshe-log-toggle',
             title: runtime.t('sync.logToggle'),

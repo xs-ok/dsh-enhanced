@@ -262,9 +262,13 @@ export async function syncSessions(deps) {
       continue;
     }
     const sharedEntry = shared.get(id);
+    // A session parked under another workspace folder was moved here: the file
+    // is authoritative locally even when no new event was appended.
+    const relocated = sharedEntry !== undefined
+      && path.basename(path.dirname(entry.file)) !== path.basename(path.dirname(sharedEntry.file));
     // Append-only logs: the one holding more events is the newer one. Upload and
     // download timestamps are meaningless here because each transfer rewrites them.
-    if (sharedEntry !== undefined) {
+    if (sharedEntry !== undefined && !relocated) {
       const localSeq = await lastContentSeq(entry.file);
       const sharedSeq = await lastContentSeq(sharedEntry.file);
       if (sharedSeq >= 0 && localSeq >= 0) {
@@ -278,7 +282,16 @@ export async function syncSessions(deps) {
       }
     }
     try {
-      if (apply) await copySessionTo(entry, sharedRoot);
+      if (apply) {
+        const written = await copySessionTo(entry, sharedRoot);
+        // A moved session can still exist under its previous project key in the
+        // share; leaving it makes every later run look like a push.
+        if (relocated && sharedEntry !== undefined) {
+          await fsp.rm(sharedEntry.dir, { recursive: true, force: true }).catch(() => {});
+          shared.delete(id);
+        }
+        await dropOtherCopies(sharedRoot, id, path.dirname(written));
+      }
       pushed += 1;
       if (pushedIds.length < 300) pushedIds.push(id);
     } catch (error) {

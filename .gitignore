@@ -3,3 +3,9 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+
+# 本机维护约定，不随仓库同步
+AGENTS.md
+
+# 本机管理脚本，不随仓库同步
+dsh-enhanced 管理入口.cmd

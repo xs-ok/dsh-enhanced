@@ -61,6 +61,7 @@ export async function mergeWorkspaceDocuments(localDoc, sharedDoc, options = {})
     stateDir = null,
     machineId = null,
     apply = true,
+    sessionCwd = null,
   } = options;
 
   // Workspace deletions used to be silent: the other machine's document still
@@ -143,6 +144,37 @@ export async function mergeWorkspaceDocuments(localDoc, sharedDoc, options = {})
     shared[entry.uuid] = record;
     if (await isDirectory(entry.path)) local[entry.uuid] = record;
     else missing.push({ title: entry.title, path: entry.path });
+  }
+
+  // A session belongs to one workspace only. Older merges unioned membership, so a
+  // moved session stayed listed under its previous workspace; resolve the real one
+  // from the session header and drop the rest.
+  if (typeof sessionCwd === 'function') {
+    const owners = new Map();
+    for (const [uuid, record] of Object.entries(shared)) {
+      for (const id of record.sessionIds) {
+        const list = owners.get(id) ?? [];
+        list.push(uuid);
+        owners.set(id, list);
+      }
+    }
+    for (const [id, uuids] of owners) {
+      if (uuids.length < 2) continue;
+      let cwd = null;
+      try {
+        cwd = await sessionCwd(id);
+      } catch {
+        cwd = null;
+      }
+      const normalized = typeof cwd === 'string' && cwd !== '' ? await resolvePath(cwd) : null;
+      const keep = normalized === null
+        ? uuids[0]
+        : (uuids.find((uuid) => shared[uuid]?.path === normalized) ?? uuids[0]);
+      for (const uuid of uuids) {
+        if (uuid === keep) continue;
+        shared[uuid].sessionIds = shared[uuid].sessionIds.filter((value) => value !== id);
+      }
+    }
   }
 
   const archived = [];

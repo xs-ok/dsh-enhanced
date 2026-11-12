@@ -10,7 +10,8 @@ import { promises as fsp } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { syncSessions } from './sessions.js';
-import { scanSessionGroups } from './scan.js';
+import { scanSessionGroups, scanSessions } from './scan.js';
+import { readSessionFile } from './session.js';
 import { loadPathMap, resolveLocalPath } from './paths.js';
 import { mergeWorkspaceFiles } from './workspace.js';
 import { pruneArchiveEvents, syncArchiveState, writeArchiveEvents } from './archive.js';
@@ -195,6 +196,16 @@ async function runSyncJsInner(deps) {
       sharedFile: path.join(sharedConfig, 'storages', 'workspace.json'),
       tombstones,
       resolvePath: async (value) => (await resolveCwd(value)).path,
+      // Lazy session lookup: only paid when a merge finds duplicate memberships.
+      sessionCwd: async (id) => {
+        const found = (await scanSessions(path.join(dshHome, 'sessions'))).get(id);
+        if (found === undefined) return null;
+        try {
+          return (await readSessionFile(found.file)).header.cwd ?? null;
+        } catch {
+          return null;
+        }
+      },
       isDirectory,
       stateDir,
       machineId,
