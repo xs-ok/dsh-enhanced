@@ -6,13 +6,14 @@
  * A failed check never throws; it is reported so the user can export a report.
  */
 import { promises as fsp } from 'node:fs';
+import { pluginVersion } from './version.js';
 import path from 'node:path';
 import os from 'node:os';
 import zlib from 'node:zlib';
 import { scanFrames } from './engine/zstd.js';
 import { scanSessions, projectKey } from './engine/scan.js';
 
-const PLUGIN_VERSION = '0.2.2-4';
+
 
 async function readJson(file) {
   try {
@@ -227,7 +228,7 @@ export async function runEnvironmentCheck(deps) {
   return {
     ok: failed.length === 0,
     checkedAt: new Date().toISOString(),
-    pluginVersion: PLUGIN_VERSION,
+    pluginVersion: pluginVersion(),
     appVersion: version.version,
     appVersionSource: version.source,
     checks,

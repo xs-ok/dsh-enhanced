@@ -26,6 +26,7 @@ import path from 'node:path';
 import { appendFile } from 'node:fs/promises';
 import { createSearch } from './host/search.js';
 import { restartApplication } from './host/restart.js';
+import { pluginVersion } from './host/version.js';
 import { inspectOverride, overwriteCloud, overwriteLocal } from './host/overwrite.js';
 import { moveCandidates, moveSession, readAllEvents } from './host/move.js';
 import { inspectSyncTarget, readSyncHistory, readSyncState, recordOverwrite, resolveSyncTarget, runSync } from './host/sync.js';
@@ -216,7 +217,7 @@ export function apply(ctx, config = {}) {
         const record = await readEnvRecord(paths);
         return {
           appVersion: current.version,
-          pluginVersion: '0.2.2-4',
+          pluginVersion: pluginVersion(),
           lastAppVersion: record.lastAppVersion ?? null,
           changed: current.version !== null && record.lastAppVersion !== undefined && record.lastAppVersion !== current.version,
         };
