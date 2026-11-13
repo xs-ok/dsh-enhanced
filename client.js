@@ -468,14 +468,28 @@ window.__ModuleLoader__.load({
   font:inherit;font-weight:600;padding:6px 10px;border-radius:8px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dshe-group-title:hover{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.05))}
 .dshe-group-meta{color:var(--dsw-alias-label-secondary,#8a919c);font-weight:400;font-size:11px;margin-left:8px}
-.dshe-match{display:flex;gap:8px;width:100%;text-align:left;border:0;background:transparent;color:var(--dsw-alias-label-secondary,#4b5563);
+    .dshe-match{display:flex;gap:6px;width:100%;text-align:left;border:0;background:transparent;color:var(--dsw-alias-label-secondary,#4b5563);
   font:inherit;padding:5px 10px 5px 18px;border-radius:8px;cursor:pointer;line-height:18px}
 .dshe-match:hover,.dshe-match[data-active="true"]{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.06))}
 .dshe-role{flex:none;font-size:11px;padding:0 6px;border-radius:6px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.05));
   color:var(--dsw-alias-label-secondary,#6b7280);height:18px;line-height:18px}
 .dshe-snippet{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary,#2b2f36)}
+    .dshe-group-title{display:flex;align-items:center;gap:6px}
+    .dshe-group-caret{flex:none;width:12px;color:var(--dsw-alias-label-secondary,#8a919c);font-size:11px}
+    .dshe-group-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .dshe-group-meta{flex:none;margin-left:0}
+    .dshe-match-time{flex:none;min-width:0;color:var(--dsw-alias-label-secondary,#8a919c);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .dshe-mark{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#3b6ef5) 26%,transparent);color:inherit;border-radius:3px;padding:0 1px}
 .dshe-section{display:flex;flex-direction:column;gap:14px;width:100%;font-size:13px}
+    .dshe-match-time[data-tier="1"]{min-width:52px}
+    .dshe-match-time[data-tier="2"]{min-width:60px}
+    .dshe-match-time[data-tier="3"]{min-width:88px}
+    .dshe-preview{position:fixed;z-index:2147482000;max-width:min(560px,46vw);max-height:46vh;overflow:auto;
+      background:var(--dsw-alias-bg-overlay,#fff);color:var(--dsw-alias-label-primary,#1b1d22);
+      border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.12));border-radius:10px;padding:10px 12px;
+      font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;box-shadow:0 12px 32px rgba(0,0,0,.18)}
+    .dshe-mark-current{background:#ffd76a;color:#1b1d22;border-radius:3px;box-shadow:0 0 0 2px rgba(255,193,7,.5)}
+    ::highlight(dshe-flash){background-color:#ffe27a;color:#1b1d22;border-radius:3px}
 .dshe-section-title{margin:0;font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary,#1b1d22)}
 .dshe-subsection-title{margin:4px 0 0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#1b1d22);
   padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.08))}
@@ -1250,6 +1264,44 @@ window.__ModuleLoader__.load({
       }, h('span', {}));
     }
 
+    /**
+     * Compact stamp for one search hit: 今日 10:11 / 昨日 10:11 / 周三 12:11 /
+     * 11-02 11:12 / 2025-12-31 08:44.
+     */
+    function formatMatchTime(value) {
+      const ms = Number(value);
+      if (!Number.isFinite(ms) || ms <= 0) return '';
+      const date = new Date(ms);
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      const days = Math.round((dayStart(now) - dayStart(date)) / 86400000);
+      if (days === 0) return `今日 ${clock}`;
+      if (days === 1) return `昨日 ${clock}`;
+      const monday = (d) => {
+        const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+        return start.getTime();
+      };
+      if (monday(date) === monday(now)) {
+        const names = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+        return `${names[(date.getDay() + 6) % 7]} ${clock}`;
+      }
+      if (date.getFullYear() === now.getFullYear()) {
+        return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${clock}`;
+      }
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${clock}`;
+    }
+
+/** Width class for a match stamp: 1 = 今日/昨日/周X, 2 = MM-DD, 3 = YYYY-MM-DD. */
+function timeTier(text) {
+  if (typeof text !== 'string' || text === '') return 1;
+  if (/^(今日|昨日|周[一二三四五六日])/u.test(text)) return 1;
+  if (/^\d{2}-\d{2} /u.test(text)) return 2;
+  return 3;
+}
+
     function formatSize(bytes) {
       const value = Number(bytes) || 0;
       if (value < 1024) return `${String(value)} B`;
@@ -1262,6 +1314,28 @@ window.__ModuleLoader__.load({
       if (!Number.isFinite(time)) return '';
       return new Date(time).toLocaleString();
     }
+
+/** Highlight every hit; the one at focusIndex also gets the current style. */
+function highlightFocus(text, query, focusIndex) {
+  const needle = typeof query === 'string' ? query.trim() : '';
+  if (needle === '') return text;
+  const lower = text.toLowerCase();
+  const target = needle.toLowerCase();
+  const parts = [];
+  let from = 0;
+  let key = 0;
+  let index = lower.indexOf(target);
+  while (index >= 0) {
+    if (index > from) parts.push(text.slice(from, index));
+    const current = Number(focusIndex) === index;
+    parts.push(h('mark', { className: current ? 'dshe-mark dshe-mark-current' : 'dshe-mark', key: `f${String(key)}` }, text.slice(index, index + target.length)));
+    key += 1;
+    from = index + target.length;
+    index = lower.indexOf(target, from);
+  }
+  if (from < text.length) parts.push(text.slice(from));
+  return parts;
+}
 
     function highlight(text, query) {
       const needle = typeof query === 'string' ? query.trim() : '';
@@ -1614,12 +1688,72 @@ const displayName = (value) => {
       return Math.max(0, Math.round(bottom));
     }
 
+    /** Describe the right-hand turn rail and the currently rendered turn window. */
+    function describeRail() {
+      const flow = document.querySelector('[data-chat-flow]');
+      const turns = flow === null ? [] : Array.from(flow.querySelectorAll('[data-chat-turn]'))
+        .map((node) => Number(node.getAttribute('data-chat-turn')))
+        .filter((value) => Number.isFinite(value));
+      const rows = flow === null ? 0 : flow.querySelectorAll('[data-chat-flow-key]').length;
+      const window = turns.length === 0
+        ? '无'
+        : `${String(Math.min(...turns))} ~ ${String(Math.max(...turns))}`;
+
+      const candidates = [];
+      for (const node of document.querySelectorAll('div, ul, nav, aside')) {
+        const rect = node.getBoundingClientRect();
+        if (rect.right < window.innerWidth - 180) continue;
+        if (rect.width < 8 || rect.width > 160) continue;
+        if (rect.height < 120) continue;
+        if (node.childElementCount < 5) continue;
+        candidates.push({ node, count: node.childElementCount, rect });
+      }
+      candidates.sort((left, right) => right.count - left.count);
+      const rail = candidates[0] ?? null;
+      const describeChild = (child) => {
+        if (child === undefined) return '无';
+        const attrs = [];
+        for (const name of child.getAttributeNames()) {
+          if (name === 'class' || name === 'style') continue;
+          attrs.push(`${name}=${String(child.getAttribute(name) ?? '').slice(0, 24)}`);
+        }
+        const label = (child.textContent ?? '').trim().slice(0, 16);
+        return `<${child.tagName.toLowerCase()}> ${attrs.join(' ') || '(无属性)'} | "${label}"`;
+      };
+
+      return [
+        `对话区：已渲染 ${String(rows)} 行，轮次 ${window}`,
+        rail === null
+          ? '未找到右侧轨道容器'
+          : `轨道容器：${rail.node.tagName.toLowerCase()}.${String(rail.node.className).slice(0, 48)}，子元素 ${String(rail.count)} 个`,
+        rail === null ? '' : `第一格：${describeChild(rail.node.children[0])}`,
+        rail === null ? '' : `中间格：${describeChild(rail.node.children[Math.floor(rail.count / 2)])}`,
+        rail === null ? '' : `最后一格：${describeChild(rail.node.children[rail.count - 1])}`,
+        '',
+        '操作：点右侧轨道任意一格，观察第一行“轮次”是否变化，然后截图。',
+      ].filter((line) => line !== '');
+    }
+
+
     function SearchOverlay() {
       const state = useStore();
       const search = state.search;
       const inputRef = React.useRef(null);
       const resultsRef = React.useRef(null);
       const [active, setActive] = React.useState(0);
+      const [expanded, setExpanded] = React.useState(null);
+      const [preview, setPreview] = React.useState(null);
+      const [railInfo, setRailInfo] = React.useState([]);
+
+      React.useEffect(() => {
+        if (search.open !== true || search.query.trim() !== '#rail#') return undefined;
+        const read = () => setRailInfo(describeRail());
+        read();
+        const timer = window.setInterval(read, 600);
+        return () => window.clearInterval(timer);
+      }, [search.open, search.query]);
+      const previewRef = React.useRef(null);
+      const previewTimer = React.useRef(null);
 
       React.useEffect(() => {
         if (search.open !== true) return undefined;
@@ -1648,26 +1782,39 @@ const displayName = (value) => {
       }, [search.open]);
 
       const flat = React.useMemo(() => {
-        const rows = [];
-        for (const group of search.groups ?? []) {
-          for (const match of group.matches ?? []) rows.push({ group, match });
-        }
-        return rows;
-      }, [search.groups]);
+        const groups = search.groups ?? [];
+        const target = expanded === null ? groups[0] : groups.find((group) => group.sessionId === expanded);
+        return (target?.matches ?? []).map((match) => ({ group: target, match }));
+      }, [search.groups, expanded]);
 
-      const offsets = React.useMemo(() => {
-        const map = new Map();
-        let cursor = 0;
-        for (const group of search.groups ?? []) {
-          map.set(group.sessionId, cursor);
-          cursor += (group.matches ?? []).length;
-        }
-        return map;
+      const groups = search.groups ?? [];
+      const totalMatches = React.useMemo(
+        () => groups.reduce((sum, group) => sum + (group.matches ?? []).length, 0),
+        [search.groups],
+      );
+
+      React.useEffect(() => {
+        setExpanded((groups[0]?.sessionId) ?? null);
       }, [search.groups]);
 
       React.useEffect(() => {
         setActive(0);
-      }, [search.groups]);
+      }, [expanded]);
+
+      React.useEffect(() => {
+        setPreview(null);
+      }, [search.open, search.groups]);
+
+      // Roughly centre the focused hit inside the popup.
+      React.useEffect(() => {
+        const box = previewRef.current;
+        if (box === null) return;
+        const mark = box.querySelector('.dshe-mark-current');
+        if (mark === null) return;
+        const boxRect = box.getBoundingClientRect();
+        const markRect = mark.getBoundingClientRect();
+        box.scrollTop += markRect.top - boxRect.top - box.clientHeight / 2 + markRect.height / 2;
+      }, [preview]);
 
       React.useEffect(() => {
         if (active >= flat.length) setActive(flat.length === 0 ? 0 : flat.length - 1);
@@ -1710,10 +1857,17 @@ const displayName = (value) => {
         }
       };
 
-      const totalMatches = flat.length;
       const meta = search.status === 'done'
         ? runtime.t('search.meta', { count: (search.groups ?? []).length, matches: totalMatches })
         : '';
+
+      const previewNode = preview === null ? null : h('div', {
+        key: 'dshe-preview', ref: previewRef,
+        className: 'dshe-preview',
+        style: { top: `${String(Math.max(12, preview.top))}px`, left: `${String(preview.left)}px`, width: `${String(preview.width)}px` },
+        onMouseEnter: () => { if (previewTimer.current !== null) window.clearTimeout(previewTimer.current); },
+        onMouseLeave: () => setPreview(null),
+      }, highlightFocus(preview.text, search.query, preview.hit));
 
       const panel = h('div', { className: 'dshe-overlay dshe-overlay-top', role: 'presentation', style: { top: `${String(captionHeight())}px` } },
         h('div', { className: 'dshe-backdrop', 'aria-hidden': 'true', onClick: () => runtime.store.closeSearch() }),
@@ -1743,35 +1897,61 @@ const displayName = (value) => {
             }, runtime.t('common.close')),
           ),
           h('div', { className: 'dshe-results', ref: resultsRef },
+            search.query.trim() === '#rail#'
+              ? h('div', { className: 'dshe-status' },
+                  railInfo.map((text, index) => h('div', { key: index, style: { fontFamily: 'monospace', fontSize: '12px', whiteSpace: 'pre-wrap' } }, text)),
+                )
+              : null,
             search.status === 'loading' ? h('div', { className: 'dshe-status', role: 'status' }, runtime.t('search.loading')) : null,
             search.status === 'error' ? h('div', { className: 'dshe-status dshe-error', role: 'alert' }, runtime.t('search.error', { message: search.error })) : null,
             search.status === 'idle' ? h('div', { className: 'dshe-status' }, runtime.t('search.hint')) : null,
             search.status === 'done' && totalMatches === 0 ? h('div', { className: 'dshe-status' }, runtime.t('search.empty')) : null,
             search.status === 'done'
-              ? (search.groups ?? []).map((group) => h('div', { className: 'dshe-group', key: group.sessionId },
-                  h('button', {
-                    type: 'button',
-                    className: 'dshe-group-title',
-                    title: group.title,
-                    onClick: () => open(group.sessionId),
-                  }, group.title, h('span', { className: 'dshe-group-meta' }, (group.matches ?? []).length + '')),
-                  (group.matches ?? []).map((match, index) => {
-                    const rowIndex = (offsets.get(group.sessionId) ?? 0) + index;
-                    return h('button', {
+              ? groups.map((group) => {
+                  const isOpen = group.sessionId === expanded;
+                  return h('div', { className: 'dshe-group', key: group.sessionId },
+                    h('button', {
                       type: 'button',
-                      className: 'dshe-match',
-                      key: `${group.sessionId}-${String(match.seq ?? 'title')}-${String(index)}`,
-                      'data-active': rowIndex === active ? 'true' : 'false',
-                      onClick: () => open(group.sessionId, match),
+                      className: 'dshe-group-title',
+                      title: group.title,
+                      'aria-expanded': isOpen ? 'true' : 'false',
+                      onClick: () => setExpanded(isOpen ? null : group.sessionId),
                     },
-                      h('span', { className: 'dshe-role' }, runtime.t(`role.${match.role ?? 'body'}`)),
-                      h('span', { className: 'dshe-snippet' }, highlight(match.snippet ?? '', search.query)),
-                    );
-                  }),
-                ))
+                    h('span', { className: 'dshe-group-caret' }, isOpen ? '▾' : '▸'),
+                    h('span', { className: 'dshe-group-name' }, group.title),
+                    h('span', { className: 'dshe-group-meta' }, (group.matches ?? []).length + '')),
+                    isOpen
+                      ? (group.matches ?? []).map((match, index) => h('button', {
+                          type: 'button',
+                          className: 'dshe-match',
+                          onMouseEnter: (event) => {
+                            if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
+                            const rect = event.currentTarget.getBoundingClientRect();
+                            const width = Math.min(520, Math.max(280, Math.round(window.innerWidth * 0.34)));
+                            const left = Math.max(24, Math.round((window.innerWidth - width) / 2));
+                            const top = Math.min(rect.top, Math.max(12, window.innerHeight - Math.round(window.innerHeight * 0.5) - 16));
+                            setPreview({ text: match.preview || match.snippet || '', hit: match.previewHit ?? -1, top, left, width });
+                          },
+                          // Give the pointer a moment to reach the popup before removing it.
+                          onMouseLeave: () => {
+                            if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
+                            previewTimer.current = window.setTimeout(() => setPreview(null), 160);
+                          },
+                          key: `${group.sessionId}-${String(match.seq ?? 'title')}-${String(index)}`,
+                          'data-active': index === active ? 'true' : 'false',
+                          onClick: () => open(group.sessionId, match),
+                        },
+                          h('span', { className: 'dshe-match-time', 'data-tier': String(timeTier(formatMatchTime(match.time))) }, formatMatchTime(match.time)),
+                          h('span', { className: 'dshe-role' }, runtime.t(`role.${match.role ?? 'body'}`)),
+                          h('span', { className: 'dshe-snippet' }, highlight(match.snippet ?? '', search.query)),
+                        ))
+                      : null,
+                  );
+                })
               : null,
           ),
         ),
+        previewNode,
       );
       return panel;
     }
@@ -2534,50 +2714,565 @@ const displayName = (value) => {
             console.warn('[dsh-enhanced] refreshing the workspace failed:', error);
           }
         };
-        const normalizeAnchor = (text) => (typeof text === 'string'
-          ? text.replace(/[`*_#>~[\]()]/g, ' ').replace(/…/g, ' ').replace(/\s+/g, ' ').trim()
-          : '');
+        /**
+         * Scroll to the start of one turn.
+         *
+         * Text-level precision inside a turn is not reliable: the same sentence can
+         * appear in the prompt and in the reply, and markdown rendering shifts the
+         * offsets. Landing on the turn boundary is predictable.
+         */
+        /** Normalise for a loose containment check: markdown noise and spaces out. */
+        const looseText = (value) => String(value ?? '').replace(/[\s`*_#>~\[\]()…⋯]/gu, '').toLowerCase();
 
-        runtime.jumpToAnchor = (options) => {
-          const needleQuery = normalizeAnchor(options?.query);
-          const needleSnippet = normalizeAnchor(options?.snippet);
-          const turn = Number.isInteger(options?.turn) ? options.turn : null;
-          const candidates = [];
-          for (const source of [needleSnippet, needleQuery]) {
-            if (source === '') continue;
-            for (const size of [36, 24, 16, 10]) {
-              if (source.length < size && source !== needleQuery) continue;
-              const value = source.length > size ? source.slice(0, size) : source;
-              if (value !== '' && !candidates.includes(value)) candidates.push(value);
-            }
+        /** Wrap every occurrence of the query inside the given nodes, then undo it later. */
+        /**
+         * Highlight every occurrence inside the given nodes with the CSS Highlight API.
+         *
+         * Ranges leave the DOM untouched, so a later render cannot break the markup,
+         * and the ten-second timer starts only after the target page is on screen.
+         */
+        let releaseFlash = null;
+        const highlightMatches = (nodes, query) => {
+          if (releaseFlash !== null) {
+            releaseFlash();
+            releaseFlash = null;
           }
-          if (candidates.length === 0) return;
-          let attempts = 0;
-          const tick = () => {
-            attempts += 1;
-            const flow = document.querySelector('[data-chat-flow]');
-            if (flow !== null) {
-              const nodes = turn === null
-                ? flow.querySelectorAll('[data-chat-flow-key]')
-                : (() => {
-                    const scoped = flow.querySelectorAll(`[data-chat-turn="${String(turn)}"]`);
-                    return scoped.length > 0 ? scoped : flow.querySelectorAll('[data-chat-flow-key]');
-                  })();
-              for (const needle of candidates) {
-                for (const node of nodes) {
-                  const text = normalizeAnchor(node.textContent ?? '');
-                  if (text.includes(needle)) {
-                    node.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                    return;
-                  }
-                }
+          const needle = typeof query === 'string' ? query.trim() : '';
+          if (needle === '' || nodes.length === 0) return;
+          if (typeof CSS === 'undefined' || CSS.highlights === undefined || typeof Highlight === 'undefined') return;
+          const lowerNeedle = needle.toLowerCase();
+          const ranges = [];
+          for (const node of nodes.slice(0, 8)) {
+            const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
+              acceptNode: (textNode) => (textNode.nodeValue ?? '').toLowerCase().includes(lowerNeedle)
+                ? NodeFilter.FILTER_ACCEPT
+                : NodeFilter.FILTER_SKIP,
+            });
+            while (walker.nextNode() !== null) {
+              const textNode = walker.currentNode;
+              const value = textNode.nodeValue ?? '';
+              const lower = value.toLowerCase();
+              let from = 0;
+              let at = lower.indexOf(lowerNeedle);
+              while (at >= 0) {
+                const range = document.createRange();
+                range.setStart(textNode, at);
+                range.setEnd(textNode, at + needle.length);
+                ranges.push(range);
+                from = at + needle.length;
+                at = lower.indexOf(lowerNeedle, from);
               }
             }
-            if (attempts < 25) window.setTimeout(tick, 140);
-            else runtime.store.toast('info', runtime.t('search.notLocated'));
+          }
+          if (ranges.length === 0) return;
+          CSS.highlights.set('dshe-flash', new Highlight(...ranges));
+          const timer = window.setTimeout(() => {
+            CSS.highlights.delete('dshe-flash');
+            releaseFlash = null;
+          }, 10_000);
+          releaseFlash = () => {
+            window.clearTimeout(timer);
+            CSS.highlights.delete('dshe-flash');
           };
-          window.setTimeout(tick, 60);
         };
+
+
+        /**
+         * Scroll to the turn a hit belongs to and flash the matched text for ten seconds.
+         *
+         * The event seq keys the rendered node ("13:input-message…"), so that is the
+         * primary anchor. Assistant nodes are keyed by turn instead, and the stored
+         * turn can be off by one across the host/UI numbering, so neighbouring turns
+         * are tried and the one whose own text contains the hit wins.
+         */
+        /** The locating run in progress, if any, so ESC can cancel it. */
+        let activeJump = null;
+
+        runtime.jumpToAnchor = (options) => {
+          const turn = Number.isInteger(options?.turn) ? options.turn : null;
+          const seq = Number.isInteger(options?.seq) ? options.seq : null;
+          const query = typeof options?.query === 'string' ? options.query : '';
+          const previewText = typeof options?.preview === 'string' ? options.preview : '';
+          const previewHit = Number.isInteger(options?.previewHit) ? options.previewHit : -1;
+          const probe = looseText(options?.snippet ?? '').slice(0, 40);
+          // The excerpt is far more specific than the short snippet.
+          const anchor = previewText !== '' && previewHit >= 0
+            ? looseText(previewText.slice(Math.max(0, previewHit - 60), previewHit + 60))
+            : '';
+          if (turn === null && seq === null) return;
+          // Starting a new locate cancels the previous one instead of running both.
+          if (activeJump !== null) activeJump.abort('silent');
+
+          const MAX_PAGES = 120;
+          const PAGE_WAIT_MS = 2500;
+          const POLL_MS = 200;
+          const MAX_STALLS = 2;
+          const lowerQuery = query.trim().toLowerCase();
+          // The cheap substring test only works for a query the transcript renders
+          // verbatim; markdown inside the query would make it skip real hits.
+          const prefilterSafe = !/[`*_#>~[\]()…]/u.test(query);
+
+          let pages = 0;
+          let stalls = 0;
+          let settled = false;
+          const timers = new Set();
+          let observer = null;
+          let progressHook = null;
+
+          /** Normalised row text by key; null means "cannot contain the hit". */
+          const cache = new Map();
+
+          const flowNode = () => document.querySelector('[data-chat-flow]');
+          const rowsOf = (flow) => Array.from(flow.querySelectorAll('[data-chat-flow-key]'));
+          const nodesOfTurn = (flow, value) => Array.from(flow.querySelectorAll('[data-chat-turn="' + value + '"]'));
+
+          const later = (fn, delay) => {
+            const id = window.setTimeout(() => {
+              timers.delete(id);
+              if (settled !== true) fn();
+            }, delay);
+            timers.add(id);
+            return id;
+          };
+
+          const clearTimers = () => {
+            for (const id of timers) window.clearTimeout(id);
+            timers.clear();
+            progressHook = null;
+            if (observer !== null) {
+              observer.disconnect();
+              observer = null;
+            }
+          };
+
+          const scroller = () => {
+            const flow = flowNode();
+            let current = flow === null ? null : flow.parentElement;
+            while (current !== null && current !== document.body) {
+              const style = window.getComputedStyle(current);
+              if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && current.scrollHeight > current.clientHeight + 4) return current;
+              current = current.parentElement;
+            }
+            return document.scrollingElement instanceof Element ? document.scrollingElement : null;
+          };
+
+          const startTarget = scroller();
+          const startTop = startTarget === null ? null : startTarget.scrollTop;
+
+          const controller = {
+            abort: (why) => {
+              if (settled === true) return;
+              settled = true;
+              clearTimers();
+              if (releaseFlash !== null) {
+                releaseFlash();
+                releaseFlash = null;
+              }
+              if (activeJump === controller) activeJump = null;
+              const target = scroller();
+              if (target !== null && startTop !== null) target.scrollTop = startTop;
+              if (why !== 'silent') runtime.store.toast('info', '已取消定位' + (typeof why === 'string' && why !== '' ? '（' + why + '）' : ''));
+            },
+          };
+          activeJump = controller;
+
+          const scrollTo = (node) => {
+            node.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          };
+
+          /** Any control that loads the previous page, whatever the app renders it as. */
+          const olderButton = () => {
+            const candidates = Array.from(document.querySelectorAll('button, [role="button"], a, [data-load-older]'));
+            for (const node of candidates) {
+              const label = (node.textContent ?? '').trim();
+              if (label === 'Load earlier' || label.startsWith('加载更早')) return node;
+              if (node.hasAttribute('data-load-older')) return node;
+              const className = [String(node.className ?? ''), String(node.parentElement?.className ?? '')].join(' ');
+              if (/(?:^|[_\\s-])older(?:[_\\s-]|$)/iu.test(className)) return node;
+            }
+            return null;
+          };
+
+          /** Oldest rendered turn: the list is chronological, so the first node wins. */
+          const oldestTurn = () => {
+            const flow = flowNode();
+            if (flow === null) return null;
+            const first = flow.querySelector('[data-chat-turn]');
+            const value = first === null ? null : Number(first.getAttribute('data-chat-turn'));
+            return Number.isFinite(value) ? value : null;
+          };
+
+          /** Which turns the transcript currently holds. */
+          const renderedRange = () => {
+            const flow = flowNode();
+            if (flow === null) return null;
+            let low = null;
+            let high = null;
+            for (const node of flow.querySelectorAll('[data-chat-turn]')) {
+              const value = Number(node.getAttribute('data-chat-turn'));
+              if (!Number.isFinite(value)) continue;
+              if (low === null || value < low) low = value;
+              if (high === null || value > high) high = value;
+            }
+            return low === null ? null : { low, high };
+          };
+
+          /**
+           * Normalised text for one row, computed once.
+           *
+           * A cheap substring test runs first: most rows cannot contain the hit and
+           * never need the expensive normalisation.
+           */
+          const rowNorm = (row) => {
+            const key = row.getAttribute('data-chat-flow-key') ?? '';
+            if (cache.has(key)) return cache.get(key);
+            const raw = row.textContent ?? '';
+            if (prefilterSafe && lowerQuery !== '' && !raw.toLowerCase().includes(lowerQuery)) {
+              cache.set(key, null);
+              return null;
+            }
+            const norm = looseText(raw);
+            cache.set(key, norm);
+            return norm;
+          };
+
+          const rowWith = (flow, needle) => {
+            if (needle === '') return null;
+            for (const row of rowsOf(flow)) {
+              const norm = rowNorm(row);
+              if (norm !== null && norm.includes(needle)) return row;
+            }
+            return null;
+          };
+
+          const finish = (nodes) => {
+            if (settled === true) return;
+            settled = true;
+            clearTimers();
+            if (activeJump === controller) activeJump = null;
+            scrollTo(nodes[0]);
+            highlightMatches(nodes, query);
+          };
+
+          const fail = (message) => {
+            if (settled === true) return;
+            settled = true;
+            clearTimers();
+            if (activeJump === controller) activeJump = null;
+            runtime.store.toast('error', message);
+          };
+
+          /** Find the target among currently rendered rows, or null. */
+          const locateNow = () => {
+            const flow = flowNode();
+            if (flow === null) return null;
+            // Rendered text is the ground truth; turn numbers only guide paging.
+            const owner = rowWith(flow, anchor) ?? rowWith(flow, probe);
+            if (owner !== null) return [owner];
+            if (probe !== '') {
+              for (const delta of [0, -1, 1]) {
+                if (turn === null) break;
+                const nodes = nodesOfTurn(flow, turn + delta);
+                if (nodes.length > 0 && nodes.some((node) => looseText(node.textContent).includes(probe))) return nodes;
+              }
+            }
+            if (turn !== null) {
+              const nodes = nodesOfTurn(flow, turn);
+              if (nodes.length > 0) return nodes;
+            }
+            if (seq !== null) {
+              const token = seq + ':';
+              const exact = Array.from(flow.querySelectorAll('[data-chat-flow-key]')).find((node) => {
+                const key = node.getAttribute('data-chat-flow-key') ?? '';
+                return key.startsWith(token) || key.includes('"' + token);
+              });
+              if (exact !== undefined) return [exact];
+            }
+            return null;
+          };
+
+          /** Drop the cache and look again; used only before giving up. */
+          const fullScan = () => {
+            cache.clear();
+            return locateNow();
+          };
+
+          const tryLocate = () => {
+            const nodes = locateNow();
+            if (nodes === null) return false;
+            finish(nodes);
+            return true;
+          };
+
+          // ── turn rail ────────────────────────────────────────────────────────
+          // One mark per turn; the rail virtualises to a window of them, so it is
+          // scrolled to the target slot first and the mark is clicked afterwards.
+
+          const railOf = () => {
+            const mark = document.querySelector('button[data-index][aria-label^="跳转到第"]');
+            return mark === null ? null : mark.parentElement;
+          };
+
+          const markOf = (index) => document.querySelector('button[data-index="' + String(index) + '"]');
+
+          /** Marks currently rendered, in DOM order. */
+          const railMarks = (rail) => Array.from(rail.querySelectorAll('button[data-index]'))
+          .map((node) => ({ node, index: Number(node.getAttribute('data-index')) }))
+          .filter((entry) => Number.isFinite(entry.index));
+
+          /**
+           * Move the rail towards one slot.
+           *
+           * The rail may render in either direction, so the distance per index is taken
+           * from the two extreme rendered marks and applied as a relative delta instead
+           * of an absolute position. A fixed-page jump keeps progress when the slope
+           * cannot be measured.
+           */
+          const railSeek = (rail, host, slot) => {
+          const marks = railMarks(rail);
+          if (marks.length === 0) return false;
+          if (marks.length === 1) {
+            host.scrollTop = Math.max(0, host.scrollTop + (slot > marks[0].index ? host.clientHeight : -host.clientHeight));
+            return true;
+          }
+          const first = marks[0];
+          const last = marks[marks.length - 1];
+          const span = last.index - first.index;
+          const pixels = last.node.offsetTop - first.node.offsetTop;
+          if (span !== 0 && pixels !== 0) {
+            const delta = ((slot - first.index) * pixels) / span;
+            if (Number.isFinite(delta) && Math.abs(delta) > 0) {
+              host.scrollTop = Math.max(0, host.scrollTop + delta);
+              return true;
+            }
+          }
+          // Unknown geometry: move a viewport towards the target and retry.
+          const direction = slot > last.index ? 1 : -1;
+          host.scrollTop = Math.max(0, host.scrollTop + direction * host.clientHeight);
+          return true;
+          };
+
+          const tryRail = (done) => {
+            const rail = railOf();
+            if (rail === null) {
+              done(false, '未找到轨道');
+              return;
+            }
+            if (turn === null) {
+              done(false, '没有轮次信息');
+              return;
+            }
+            const slot = turn - 1;
+            if (slot < 0) {
+              done(false, '轮次无效');
+              return;
+            }
+            // Already rendered: no scrolling needed.
+            const ready = markOf(slot);
+            if (ready !== null) {
+              ready.click();
+              done(true);
+              return;
+            }
+            const host = railHost(rail);
+            runtime.store.toast('info', '正在定位（跳到第 ' + String(turn) + ' 轮，按 ESC 取消）');
+            let tries = 0;
+            let lastTop = host.scrollTop;
+            let stuck = 0;
+            const attempt = () => {
+              if (settled === true) return;
+              const mark = markOf(slot);
+              if (mark !== null) {
+                mark.click();
+                done(true);
+                return;
+              }
+              tries += 1;
+              if (tries > 15) {
+                done(false, '格子未渲染');
+                return;
+              }
+              railSeek(rail, host, slot);
+              if (Math.abs(host.scrollTop - lastTop) < 1) {
+                stuck += 1;
+                if (stuck >= 3) {
+                  done(false, '容器不可滚动');
+                  return;
+                }
+              } else {
+                stuck = 0;
+                lastTop = host.scrollTop;
+              }
+              later(attempt, 150);
+            };
+            attempt();
+          };
+
+          /** Wait until the transcript actually holds the target turn. */
+          const waitForTurn = (done) => {
+            const started = Date.now();
+            const check = () => {
+              if (settled === true) return;
+              const range = renderedRange();
+              if (range !== null && turn !== null && range.low <= turn && turn <= range.high) {
+                done(true);
+                return;
+              }
+              if (locateNow() !== null) {
+                done(true);
+                return;
+              }
+              if (Date.now() - started >= 3000) {
+                done(false);
+                return;
+              }
+              later(check, 200);
+            };
+            check();
+          };
+
+          // ── page loading fallback ────────────────────────────────────────────
+
+          const ensureObserver = () => {
+            if (observer !== null) return;
+            const flow = flowNode();
+            if (flow === null) return;
+            observer = new MutationObserver((mutations) => {
+              for (const mutation of mutations) {
+                const node = mutation.target instanceof Element
+                  ? mutation.target
+                  : (mutation.target.parentElement ?? null);
+                const row = node === null ? null : node.closest('[data-chat-flow-key]');
+                if (row !== null) cache.delete(row.getAttribute('data-chat-flow-key') ?? '');
+              }
+              if (progressHook !== null) progressHook();
+            });
+            observer.observe(flow, { childList: true, subtree: true, characterData: true });
+          };
+
+          const loadOnePage = (done) => {
+            ensureObserver();
+            const before = { turn: oldestTurn(), height: scroller()?.scrollHeight ?? 0 };
+            const started = Date.now();
+            let answered = false;
+
+            const settle = (grew) => {
+              if (answered === true) return;
+              answered = true;
+              progressHook = null;
+              done(grew);
+            };
+
+            const check = () => {
+              if (settled === true) return;
+              const turnNow = oldestTurn();
+              const heightNow = scroller()?.scrollHeight ?? 0;
+              const moved = (before.turn !== null && turnNow !== null && turnNow < before.turn)
+                || heightNow > before.height + 40;
+              if (moved) {
+                settle(true);
+                return;
+              }
+              if (Date.now() - started >= PAGE_WAIT_MS) {
+                settle(false);
+                return;
+              }
+              later(check, POLL_MS);
+            };
+
+            progressHook = check;
+
+            const button = olderButton();
+            if (button !== null && button.disabled !== true) {
+              button.click();
+            } else {
+              // No visible pager: reaching the top is what makes the app page in more.
+              const target = scroller();
+              if (target === null) {
+                settle(false);
+                return;
+              }
+              target.scrollTop = 0;
+            }
+            later(check, POLL_MS);
+          };
+
+          const advance = () => {
+            if (settled === true) return;
+            if (pages >= MAX_PAGES) {
+              const hit = fullScan();
+              if (hit !== null) {
+                finish(hit);
+                return;
+              }
+              fail('更早的历史过多，已停止定位');
+              return;
+            }
+            if (stalls >= MAX_STALLS) {
+              const hit = fullScan();
+              if (hit !== null) {
+                finish(hit);
+                return;
+              }
+              fail('未找到目标（已到最旧）');
+              return;
+            }
+            pages += 1;
+            runtime.store.toast('info', '正在定位（已加载 ' + String(pages - 1) + ' 页，按 ESC 取消）');
+            loadOnePage((grew) => {
+              if (settled === true) return;
+              if (!grew) {
+                stalls += 1;
+                advance();
+                return;
+              }
+              stalls = 0;
+              if (tryLocate()) return;
+              advance();
+            });
+          };
+
+          const startPaging = (reason) => {
+            if (settled === true) return;
+            if (tryLocate()) return;
+            if (flowNode() === null) {
+              fail('会话还没准备好，请稍后再试');
+              return;
+            }
+            if (typeof reason === 'string' && reason !== '') {
+              runtime.store.toast('info', '轨道不可用（' + reason + '），改用逐页加载');
+              // Let the reason stay readable before the page counter takes over.
+              later(() => {
+                if (settled !== true) advance();
+              }, 1200);
+              return;
+            }
+            advance();
+          };
+
+          // A message that is already rendered needs no navigation.
+          if (tryLocate()) return;
+          if (flowNode() === null) {
+            fail('会话还没准备好，请稍后再试');
+            return;
+          }
+          tryRail((clicked, reason) => {
+            if (settled === true) return;
+            if (!clicked) {
+              startPaging(reason);
+              return;
+            }
+            waitForTurn((arrived) => {
+              if (settled === true) return;
+              if (arrived && tryLocate()) return;
+              startPaging(arrived ? '轨道未定位到该轮' : reason);
+            });
+          });
+        };
+
+
+
+
 
         runtime.focusMatch = async (sessionId, match, query) => {
           let turn = null;
@@ -2589,7 +3284,7 @@ const displayName = (value) => {
               console.warn('[dsh-enhanced] locating the event failed:', error);
             }
           }
-          runtime.jumpToAnchor({ snippet: match?.snippet ?? '', query, turn });
+          runtime.jumpToAnchor({ turn, seq: match?.seq, snippet: match?.snippet, preview: match?.preview, previewHit: match?.previewHit, query });
         };
         runtime.rpc = async (action, payload, signal) => {
           const url = new URL('api/dsh-enhanced/rpc', document.baseURI);
@@ -2648,10 +3343,26 @@ const displayName = (value) => {
         }, 'dsh-enhanced: restart shortcut');
 
         ctx.effect(() => {
+          // ESC stops a long locate and puts the reader back where they were.
+          const onKeyDown = (event) => {
+            if (event.key !== 'Escape') return;
+            if (activeJump === null) return;
+            const state = runtime.store.get();
+            if (state?.search?.open === true) return;
+            event.preventDefault();
+            event.stopPropagation();
+            activeJump.abort('ESC');
+          };
+          window.addEventListener('keydown', onKeyDown, true);
+          return () => window.removeEventListener('keydown', onKeyDown, true);
+        }, 'dsh-enhanced: cancel locate');
+
+
+        ctx.effect(() => {
           // Prefetch distance from the top of the loaded history, in pixels.
-          const PREFETCH_PX = 800;
+          const PREFETCH_PX = 600;
           // Do not stack requests closer than this, so one flick loads one page.
-          const MIN_GAP_MS = 120;
+          const MIN_GAP_MS = 600;
           let cachedScroller = null;
           let loading = null;
           let scheduled = null;
@@ -2682,12 +3393,13 @@ const displayName = (value) => {
           };
 
           const findOlderButton = () => {
-            for (const button of document.querySelectorAll('button')) {
-              if (button.closest('[data-chat-flow-key]') !== null) continue;
-              const parent = button.parentElement;
-              const className = parent === null ? '' : String(parent.className ?? '');
-              const label = (button.textContent ?? '').trim();
-              if (/(?:^|_)older(?:_|$)/u.test(className) || label === 'Load earlier' || label.startsWith('加载更早')) return button;
+            const candidates = Array.from(document.querySelectorAll('button, [role="button"], a, [data-load-older]'));
+            for (const node of candidates) {
+              const label = (node.textContent ?? '').trim();
+              if (label === 'Load earlier' || label.startsWith('加载更早')) return node;
+              if (node.hasAttribute('data-load-older')) return node;
+              const className = [String(node.className ?? ''), String(node.parentElement?.className ?? '')].join(' ');
+              if (/(?:^|[_\s-])older(?:[_\s-]|$)/iu.test(className)) return node;
             }
             return null;
           };
@@ -2736,7 +3448,7 @@ const displayName = (value) => {
               if (grown > 0 && !moved) scroller.scrollTop = before.top + grown;
               loading = null;
               // Chain straight into the next page while the reader is still near the top.
-              schedule(80);
+              schedule(400);
             };
             window.setTimeout(settle, 100);
           };
