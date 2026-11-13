@@ -262,17 +262,21 @@ export async function syncSessions(deps) {
       continue;
     }
     const sharedEntry = shared.get(id);
-    // A session parked under another workspace folder was moved here: the file
-    // is authoritative locally even when no new event was appended.
+    // A session under another workspace folder was moved: the folder says nothing
+    // about which copy is newer, so the event count still decides. Treating the
+    // local folder as authoritative pushed a stale copy back over a newer share
+    // and undid the move.
     const relocated = sharedEntry !== undefined
       && path.basename(path.dirname(entry.file)) !== path.basename(path.dirname(sharedEntry.file));
     // Append-only logs: the one holding more events is the newer one. Upload and
     // download timestamps are meaningless here because each transfer rewrites them.
-    if (sharedEntry !== undefined && !relocated) {
+    if (sharedEntry !== undefined) {
       const localSeq = await lastContentSeq(entry.file);
       const sharedSeq = await lastContentSeq(sharedEntry.file);
       if (sharedSeq >= 0 && localSeq >= 0) {
         if (sharedSeq >= localSeq) {
+          // The share is as new or newer — including a moved session it already
+          // holds; the pull pass below brings it over and drops the local copy.
           skipped += 1;
           continue;
         }
