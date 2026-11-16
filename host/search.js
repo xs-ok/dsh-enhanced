@@ -80,21 +80,23 @@ function buildDocument(sessionId, header, events) {
   let title = '';
   let updatedAt = typeof header.createdAt === 'number' ? header.createdAt : 0;
   let firstUserText = '';
+  let turn = 0;
   for (const event of events) {
+    if (event.type === 'turn/start' && typeof event.data?.turn === 'number') turn = event.data.turn;
     if (typeof event.time === 'number' && event.time > updatedAt) updatedAt = event.time;
     if (event.type === 'user/message') {
       if (!isVisibleUserMessage(event.data)) continue;
       const text = messageText(event.data);
       if (text !== '') {
         if (firstUserText === '') firstUserText = text;
-        segments.push({ seq: event.seq, role: 'user', text: clip(text), time: event.time });
+        segments.push({ seq: event.seq, role: 'user', text: clip(text), time: event.time, turn });
       }
     } else if (event.type === 'assistant/message') {
       const text = messageText(event.data?.message);
-      if (text !== '') segments.push({ seq: event.seq, role: 'assistant', text: clip(text), time: event.time });
+      if (text !== '') segments.push({ seq: event.seq, role: 'assistant', text: clip(text), time: event.time, turn });
     } else if (event.type === 'tool/result') {
       const text = messageText(event.data?.message);
-      if (text !== '') segments.push({ seq: event.seq, role: 'tool', text: clip(text), time: event.time });
+      if (text !== '') segments.push({ seq: event.seq, role: 'tool', text: clip(text), time: event.time, turn });
     } else if (event.type === 'session/title') {
       const value = event.data?.title;
       if (typeof value === 'string' && value.trim() !== '') title = value.trim();
@@ -159,6 +161,7 @@ function matchDocument(document, needle, settings, budget) {
         kind: 'body',
         role: segment.role,
         seq: segment.seq,
+        turn: segment.turn,
         snippet: snippetAround(segment.text, at, needle.length),
         preview: preview.text,
         previewHit: preview.hit,

@@ -639,7 +639,7 @@ window.__ModuleLoader__.load({
         toast(kind, text) {
           if (toastTimer !== null) clearTimeout(toastTimer);
           store.set({ toast: { kind, text, id: Date.now() } });
-          toastTimer = setTimeout(() => store.set({ toast: null }), kind === 'error' ? 6000 : 3500);
+          toastTimer = setTimeout(() => store.set({ toast: null }), kind === 'error' ? 5000 : 3000);
         },
         async init() {
           try {
@@ -1688,51 +1688,6 @@ const displayName = (value) => {
       return Math.max(0, Math.round(bottom));
     }
 
-    /** Describe the right-hand turn rail and the currently rendered turn window. */
-    function describeRail() {
-      const flow = document.querySelector('[data-chat-flow]');
-      const turns = flow === null ? [] : Array.from(flow.querySelectorAll('[data-chat-turn]'))
-        .map((node) => Number(node.getAttribute('data-chat-turn')))
-        .filter((value) => Number.isFinite(value));
-      const rows = flow === null ? 0 : flow.querySelectorAll('[data-chat-flow-key]').length;
-      const window = turns.length === 0
-        ? '无'
-        : `${String(Math.min(...turns))} ~ ${String(Math.max(...turns))}`;
-
-      const candidates = [];
-      for (const node of document.querySelectorAll('div, ul, nav, aside')) {
-        const rect = node.getBoundingClientRect();
-        if (rect.right < window.innerWidth - 180) continue;
-        if (rect.width < 8 || rect.width > 160) continue;
-        if (rect.height < 120) continue;
-        if (node.childElementCount < 5) continue;
-        candidates.push({ node, count: node.childElementCount, rect });
-      }
-      candidates.sort((left, right) => right.count - left.count);
-      const rail = candidates[0] ?? null;
-      const describeChild = (child) => {
-        if (child === undefined) return '无';
-        const attrs = [];
-        for (const name of child.getAttributeNames()) {
-          if (name === 'class' || name === 'style') continue;
-          attrs.push(`${name}=${String(child.getAttribute(name) ?? '').slice(0, 24)}`);
-        }
-        const label = (child.textContent ?? '').trim().slice(0, 16);
-        return `<${child.tagName.toLowerCase()}> ${attrs.join(' ') || '(无属性)'} | "${label}"`;
-      };
-
-      return [
-        `对话区：已渲染 ${String(rows)} 行，轮次 ${window}`,
-        rail === null
-          ? '未找到右侧轨道容器'
-          : `轨道容器：${rail.node.tagName.toLowerCase()}.${String(rail.node.className).slice(0, 48)}，子元素 ${String(rail.count)} 个`,
-        rail === null ? '' : `第一格：${describeChild(rail.node.children[0])}`,
-        rail === null ? '' : `中间格：${describeChild(rail.node.children[Math.floor(rail.count / 2)])}`,
-        rail === null ? '' : `最后一格：${describeChild(rail.node.children[rail.count - 1])}`,
-        '',
-        '操作：点右侧轨道任意一格，观察第一行“轮次”是否变化，然后截图。',
-      ].filter((line) => line !== '');
-    }
 
 
     function SearchOverlay() {
@@ -1743,17 +1698,96 @@ const displayName = (value) => {
       const [active, setActive] = React.useState(0);
       const [expanded, setExpanded] = React.useState(null);
       const [preview, setPreview] = React.useState(null);
-      const [railInfo, setRailInfo] = React.useState([]);
 
+      // The card lives on document.body: inside the dialog an animated ancestor would
+      // turn position:fixed into a local coordinate system and clip it.
       React.useEffect(() => {
-        if (search.open !== true || search.query.trim() !== '#rail#') return undefined;
-        const read = () => setRailInfo(describeRail());
-        read();
-        const timer = window.setInterval(read, 600);
-        return () => window.clearInterval(timer);
-      }, [search.open, search.query]);
+        const existing = document.getElementById('dshe-preview-el');
+        if (existing !== null) existing.remove();
+        if (preview === null) return;
+
+        const node = document.createElement('div');
+        node.id = 'dshe-preview-el';
+        node.className = 'dshe-preview';
+        node.style.cssText = [
+          'position:fixed',
+          'z-index:2147482000',
+          'box-sizing:border-box',
+          'overflow:auto',
+          'width:' + String(preview.width) + 'px',
+          'left:' + String(preview.left) + 'px',
+          'max-height:' + String(preview.maxHeight ?? 320) + 'px',
+          preview.bottom !== null && preview.bottom !== undefined
+            ? 'bottom:' + String(preview.bottom) + 'px'
+            : 'top:' + String(Math.max(12, preview.top ?? 12)) + 'px',
+        ].join(';');
+
+        const needle = search.query.trim().toLowerCase();
+        const text = String(preview.text ?? '');
+        if (needle === '') {
+          node.textContent = text;
+        } else {
+          let from = 0;
+          let at = text.toLowerCase().indexOf(needle);
+          while (at >= 0) {
+            if (at > from) node.appendChild(document.createTextNode(text.slice(from, at)));
+            const mark = document.createElement('mark');
+            mark.className = at === preview.hit ? 'dshe-mark dshe-mark-current' : 'dshe-mark';
+            mark.textContent = text.slice(at, at + needle.length);
+            node.appendChild(mark);
+            from = at + needle.length;
+            at = text.toLowerCase().indexOf(needle, from);
+          }
+          if (from < text.length) node.appendChild(document.createTextNode(text.slice(from)));
+        }
+
+        node.addEventListener('mouseenter', () => {
+          if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
+        });
+        node.addEventListener('mouseleave', () => {
+          if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
+          previewTimer.current = window.setTimeout(() => setPreview(null), 160);
+        });
+        document.body.appendChild(node);
+
+        // Keep it inside the window, then centre the focused hit.
+        const rect = node.getBoundingClientRect();
+        if (rect.bottom > window.innerHeight - 12) {
+          node.style.top = 'auto';
+          node.style.bottom = String(Math.max(12, Math.round(window.innerHeight - rect.top - (window.innerHeight - 24 - rect.height)))) + 'px';
+        }
+        const mark = node.querySelector('.dshe-mark-current');
+        if (mark !== null) {
+          const box = node.getBoundingClientRect();
+          const markRect = mark.getBoundingClientRect();
+          node.scrollTop += markRect.top - box.top - node.clientHeight / 2 + markRect.height / 2;
+        }
+      }, [preview, search.query]);
+
       const previewRef = React.useRef(null);
       const previewTimer = React.useRef(null);
+      const previewGate = React.useRef(true);
+      const previewHover = React.useRef(null);
+      const previewPointer = React.useRef({ x: 0, y: 0 });
+
+      React.useEffect(() => {
+        // Typing hides the preview; it may only reappear after the pointer moves.
+        previewGate.current = true;
+        if (previewHover.current !== null) {
+          window.clearTimeout(previewHover.current);
+          previewHover.current = null;
+        }
+        setPreview(null);
+      }, [search.query]);
+
+      React.useEffect(() => {
+        const onMove = (event) => {
+          previewGate.current = false;
+          previewPointer.current = { x: event.clientX, y: event.clientY };
+        };
+        window.addEventListener('mousemove', onMove, { passive: true });
+        return () => window.removeEventListener('mousemove', onMove);
+        }, []);
 
       React.useEffect(() => {
         if (search.open !== true) return undefined;
@@ -1805,16 +1839,6 @@ const displayName = (value) => {
         setPreview(null);
       }, [search.open, search.groups]);
 
-      // Roughly centre the focused hit inside the popup.
-      React.useEffect(() => {
-        const box = previewRef.current;
-        if (box === null) return;
-        const mark = box.querySelector('.dshe-mark-current');
-        if (mark === null) return;
-        const boxRect = box.getBoundingClientRect();
-        const markRect = mark.getBoundingClientRect();
-        box.scrollTop += markRect.top - boxRect.top - box.clientHeight / 2 + markRect.height / 2;
-      }, [preview]);
 
       React.useEffect(() => {
         if (active >= flat.length) setActive(flat.length === 0 ? 0 : flat.length - 1);
@@ -1861,13 +1885,6 @@ const displayName = (value) => {
         ? runtime.t('search.meta', { count: (search.groups ?? []).length, matches: totalMatches })
         : '';
 
-      const previewNode = preview === null ? null : h('div', {
-        key: 'dshe-preview', ref: previewRef,
-        className: 'dshe-preview',
-        style: { top: `${String(Math.max(12, preview.top))}px`, left: `${String(preview.left)}px`, width: `${String(preview.width)}px` },
-        onMouseEnter: () => { if (previewTimer.current !== null) window.clearTimeout(previewTimer.current); },
-        onMouseLeave: () => setPreview(null),
-      }, highlightFocus(preview.text, search.query, preview.hit));
 
       const panel = h('div', { className: 'dshe-overlay dshe-overlay-top', role: 'presentation', style: { top: `${String(captionHeight())}px` } },
         h('div', { className: 'dshe-backdrop', 'aria-hidden': 'true', onClick: () => runtime.store.closeSearch() }),
@@ -1897,11 +1914,6 @@ const displayName = (value) => {
             }, runtime.t('common.close')),
           ),
           h('div', { className: 'dshe-results', ref: resultsRef },
-            search.query.trim() === '#rail#'
-              ? h('div', { className: 'dshe-status' },
-                  railInfo.map((text, index) => h('div', { key: index, style: { fontFamily: 'monospace', fontSize: '12px', whiteSpace: 'pre-wrap' } }, text)),
-                )
-              : null,
             search.status === 'loading' ? h('div', { className: 'dshe-status', role: 'status' }, runtime.t('search.loading')) : null,
             search.status === 'error' ? h('div', { className: 'dshe-status dshe-error', role: 'alert' }, runtime.t('search.error', { message: search.error })) : null,
             search.status === 'idle' ? h('div', { className: 'dshe-status' }, runtime.t('search.hint')) : null,
@@ -1925,15 +1937,38 @@ const displayName = (value) => {
                           type: 'button',
                           className: 'dshe-match',
                           onMouseEnter: (event) => {
-                            if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-                            const rect = event.currentTarget.getBoundingClientRect();
-                            const width = Math.min(520, Math.max(280, Math.round(window.innerWidth * 0.34)));
-                            const left = Math.max(24, Math.round((window.innerWidth - width) / 2));
-                            const top = Math.min(rect.top, Math.max(12, window.innerHeight - Math.round(window.innerHeight * 0.5) - 16));
-                            setPreview({ text: match.preview || match.snippet || '', hit: match.previewHit ?? -1, top, left, width });
+                            if (previewHover.current !== null) window.clearTimeout(previewHover.current);
+                            if (previewGate.current === true) return;
+                            const row = event.currentTarget;
+                            if (event.clientX !== undefined) previewPointer.current = { x: event.clientX, y: event.clientY };
+                            previewHover.current = window.setTimeout(() => {
+                              previewHover.current = null;
+                              const rect = row.getBoundingClientRect();
+                              const dialog = row.closest('.dshe-search');
+                              const box = dialog === null ? null : dialog.getBoundingClientRect();
+                              const width = box === null ? 420 : Math.min(460, Math.round(box.width * 0.62));
+                              const pointer = previewPointer.current;
+                              const left = Math.max(12, Math.min(Math.round(pointer.x + 16), window.innerWidth - width - 12));
+                              const spaceBelow = Math.round(window.innerHeight - rect.bottom - 12);
+                              const spaceAbove = Math.round(rect.top - 12);
+                              // Pick whichever side has more room, so a row near the bottom opens upwards.
+                              const goAbove = spaceAbove > spaceBelow;
+                              if (goAbove) {
+                                const bottom = Math.max(12, Math.round(window.innerHeight - (rect.top - 6)));
+                                const maxHeight = Math.max(160, Math.min(Math.round(window.innerHeight * 0.7), spaceAbove - 6));
+                                setPreview({ text: match.preview || match.snippet || '', hit: match.previewHit ?? -1, left, width, maxHeight, top: null, bottom });
+                              } else {
+                                const top = Math.round(rect.bottom + 6);
+                                const maxHeight = Math.max(160, Math.min(Math.round(window.innerHeight * 0.7), spaceBelow - 6));
+                                setPreview({ text: match.preview || match.snippet || '', hit: match.previewHit ?? -1, left, width, maxHeight, top, bottom: null });
+                              }
+                            }, 1000);
                           },
-                          // Give the pointer a moment to reach the popup before removing it.
                           onMouseLeave: () => {
+                            if (previewHover.current !== null) {
+                              window.clearTimeout(previewHover.current);
+                              previewHover.current = null;
+                            }
                             if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
                             previewTimer.current = window.setTimeout(() => setPreview(null), 160);
                           },
@@ -1951,7 +1986,6 @@ const displayName = (value) => {
               : null,
           ),
         ),
-        previewNode,
       );
       return panel;
     }
@@ -2724,6 +2758,9 @@ const displayName = (value) => {
         /** Normalise for a loose containment check: markdown noise and spaces out. */
         const looseText = (value) => String(value ?? '').replace(/[\s`*_#>~\[\]()…⋯]/gu, '').toLowerCase();
 
+        /** Keep only letters and digits: markdown markers differ between log and UI. */
+        const bareText = (value) => String(value ?? '').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+
         /** Wrap every occurrence of the query inside the given nodes, then undo it later. */
         /**
          * Highlight every occurrence inside the given nodes with the CSS Highlight API.
@@ -2785,506 +2822,175 @@ const displayName = (value) => {
          * turn can be off by one across the host/UI numbering, so neighbouring turns
          * are tried and the one whose own text contains the hit wins.
          */
-        /** The locating run in progress, if any, so ESC can cancel it. */
-        let activeJump = null;
+        /**
+         * Fixed-position banner for jump feedback.
+         *
+         * It does not depend on React or the toast store and always lands at a
+         * constant place in the window, so nothing can push it off-screen.
+         */
+        const showJumpNotice = (text, ms) => {
+          try {
+            const existing = document.getElementById('dshe-jump-notice');
+            if (existing !== null) existing.remove();
+            const node = document.createElement('div');
+            node.id = 'dshe-jump-notice';
+            node.textContent = String(text ?? '');
+            node.style.cssText = [
+              'position:fixed',
+              'z-index:2147483002',
+              'top:44px',
+              'left:50%',
+              'transform:translateX(-50%)',
+              'pointer-events:auto',
+              'background:rgba(24,26,30,.96)',
+              'color:#fff',
+              'border:1px solid rgba(255,255,255,.18)',
+              'border-radius:14px',
+              'padding:16px 26px',
+              'font-size:16px',
+              'font-weight:500',
+              'line-height:1.55',
+              'box-shadow:0 24px 60px rgba(0,0,0,.38)',
+              'max-width:70vw',
+              'text-align:center',
+              'cursor:pointer',
+            ].join(';');
+            node.addEventListener('click', () => node.remove());
+            document.body.appendChild(node);
+            window.setTimeout(() => node.remove(), typeof ms === 'number' ? ms : 5000);
+          } catch (error) {
+            console.warn('[dsh-enhanced] notice failed:', error);
+          }
+        };
 
+        /**
+         * Locate one hit inside the mounted transcript.
+         *
+         * Only rendered rows can be found: a hit that lives in older history is
+         * reported instead of being searched for where it cannot exist.
+         */
         runtime.jumpToAnchor = (options) => {
-          const turn = Number.isInteger(options?.turn) ? options.turn : null;
-          const seq = Number.isInteger(options?.seq) ? options.seq : null;
           const query = typeof options?.query === 'string' ? options.query : '';
           const previewText = typeof options?.preview === 'string' ? options.preview : '';
           const previewHit = Number.isInteger(options?.previewHit) ? options.previewHit : -1;
-          const probe = looseText(options?.snippet ?? '').slice(0, 40);
-          // The excerpt is far more specific than the short snippet.
-          const anchor = previewText !== '' && previewHit >= 0
-            ? looseText(previewText.slice(Math.max(0, previewHit - 60), previewHit + 60))
+          const probe = bareText(options?.snippet ?? '').slice(0, 40);
+          const anchorText = previewText !== '' && previewHit >= 0
+            ? bareText(previewText.slice(Math.max(0, previewHit - 60), previewHit + 60))
             : '';
-          if (turn === null && seq === null) return;
-          // Starting a new locate cancels the previous one instead of running both.
-          if (activeJump !== null) activeJump.abort('silent');
+          const kinds = options?.role === 'user'
+            ? ['user', 'steering']
+            : (options?.role === 'assistant'
+              ? ['assistant-step', 'turn-tail']
+              : (options?.role === 'tool' ? ['tool-call'] : null));
 
-          const MAX_PAGES = 120;
-          const PAGE_WAIT_MS = 2500;
-          const POLL_MS = 200;
-          const MAX_STALLS = 2;
-          const lowerQuery = query.trim().toLowerCase();
-          // The cheap substring test only works for a query the transcript renders
-          // verbatim; markdown inside the query would make it skip real hits.
-          const prefilterSafe = !/[`*_#>~[\]()…]/u.test(query);
-
-          let pages = 0;
-          let stalls = 0;
           let settled = false;
-          const timers = new Set();
-          let observer = null;
-          let progressHook = null;
+          let tries = 0;
 
-          /** Normalised row text by key; null means "cannot contain the hit". */
-          const cache = new Map();
-
-          const flowNode = () => document.querySelector('[data-chat-flow]');
-          const rowsOf = (flow) => Array.from(flow.querySelectorAll('[data-chat-flow-key]'));
-          const nodesOfTurn = (flow, value) => Array.from(flow.querySelectorAll('[data-chat-turn="' + value + '"]'));
-
-          const later = (fn, delay) => {
-            const id = window.setTimeout(() => {
-              timers.delete(id);
-              if (settled !== true) fn();
-            }, delay);
-            timers.add(id);
-            return id;
-          };
-
-          const clearTimers = () => {
-            for (const id of timers) window.clearTimeout(id);
-            timers.clear();
-            progressHook = null;
-            if (observer !== null) {
-              observer.disconnect();
-              observer = null;
-            }
-          };
-
-          const scroller = () => {
-            const flow = flowNode();
-            let current = flow === null ? null : flow.parentElement;
-            while (current !== null && current !== document.body) {
-              const style = window.getComputedStyle(current);
-              if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && current.scrollHeight > current.clientHeight + 4) return current;
-              current = current.parentElement;
-            }
-            return document.scrollingElement instanceof Element ? document.scrollingElement : null;
-          };
-
-          const startTarget = scroller();
-          const startTop = startTarget === null ? null : startTarget.scrollTop;
-
-          const controller = {
-            abort: (why) => {
-              if (settled === true) return;
-              settled = true;
-              clearTimers();
-              if (releaseFlash !== null) {
-                releaseFlash();
-                releaseFlash = null;
-              }
-              if (activeJump === controller) activeJump = null;
-              const target = scroller();
-              if (target !== null && startTop !== null) target.scrollTop = startTop;
-              if (why !== 'silent') runtime.store.toast('info', '已取消定位' + (typeof why === 'string' && why !== '' ? '（' + why + '）' : ''));
-            },
-          };
-          activeJump = controller;
-
-          const scrollTo = (node) => {
-            node.scrollIntoView({ block: 'start', behavior: 'smooth' });
-          };
-
-          /** Any control that loads the previous page, whatever the app renders it as. */
-          const olderButton = () => {
-            const candidates = Array.from(document.querySelectorAll('button, [role="button"], a, [data-load-older]'));
-            for (const node of candidates) {
-              const label = (node.textContent ?? '').trim();
-              if (label === 'Load earlier' || label.startsWith('加载更早')) return node;
-              if (node.hasAttribute('data-load-older')) return node;
-              const className = [String(node.className ?? ''), String(node.parentElement?.className ?? '')].join(' ');
-              if (/(?:^|[_\\s-])older(?:[_\\s-]|$)/iu.test(className)) return node;
-            }
-            return null;
-          };
-
-          /** Oldest rendered turn: the list is chronological, so the first node wins. */
-          const oldestTurn = () => {
-            const flow = flowNode();
-            if (flow === null) return null;
-            const first = flow.querySelector('[data-chat-turn]');
-            const value = first === null ? null : Number(first.getAttribute('data-chat-turn'));
-            return Number.isFinite(value) ? value : null;
-          };
-
-          /** Which turns the transcript currently holds. */
-          const renderedRange = () => {
-            const flow = flowNode();
-            if (flow === null) return null;
-            let low = null;
-            let high = null;
-            for (const node of flow.querySelectorAll('[data-chat-turn]')) {
-              const value = Number(node.getAttribute('data-chat-turn'));
-              if (!Number.isFinite(value)) continue;
-              if (low === null || value < low) low = value;
-              if (high === null || value > high) high = value;
-            }
-            return low === null ? null : { low, high };
-          };
-
-          /**
-           * Normalised text for one row, computed once.
-           *
-           * A cheap substring test runs first: most rows cannot contain the hit and
-           * never need the expensive normalisation.
-           */
-          const rowNorm = (row) => {
-            const key = row.getAttribute('data-chat-flow-key') ?? '';
-            if (cache.has(key)) return cache.get(key);
-            const raw = row.textContent ?? '';
-            if (prefilterSafe && lowerQuery !== '' && !raw.toLowerCase().includes(lowerQuery)) {
-              cache.set(key, null);
-              return null;
-            }
-            const norm = looseText(raw);
-            cache.set(key, norm);
-            return norm;
-          };
-
-          const rowWith = (flow, needle) => {
-            if (needle === '') return null;
-            for (const row of rowsOf(flow)) {
-              const norm = rowNorm(row);
-              if (norm !== null && norm.includes(needle)) return row;
-            }
-            return null;
-          };
-
-          const finish = (nodes) => {
-            if (settled === true) return;
+          const finish = (row) => {
             settled = true;
-            clearTimers();
-            if (activeJump === controller) activeJump = null;
-            scrollTo(nodes[0]);
-            highlightMatches(nodes, query);
+            scrollToKeyword(row, query);
+            highlightMatches([row], query);
+            showJumpNotice('已定位到匹配位置', 2000);
           };
 
-          const fail = (message) => {
-            if (settled === true) return;
-            settled = true;
-            clearTimers();
-            if (activeJump === controller) activeJump = null;
-            runtime.store.toast('error', message);
-          };
-
-          /** Find the target among currently rendered rows, or null. */
-          const locateNow = () => {
-            const flow = flowNode();
-            if (flow === null) return null;
-            // Rendered text is the ground truth; turn numbers only guide paging.
-            const owner = rowWith(flow, anchor) ?? rowWith(flow, probe);
-            if (owner !== null) return [owner];
-            if (probe !== '') {
-              for (const delta of [0, -1, 1]) {
-                if (turn === null) break;
-                const nodes = nodesOfTurn(flow, turn + delta);
-                if (nodes.length > 0 && nodes.some((node) => looseText(node.textContent).includes(probe))) return nodes;
-              }
-            }
-            if (turn !== null) {
-              const nodes = nodesOfTurn(flow, turn);
-              if (nodes.length > 0) return nodes;
-            }
-            if (seq !== null) {
-              const token = seq + ':';
-              const exact = Array.from(flow.querySelectorAll('[data-chat-flow-key]')).find((node) => {
-                const key = node.getAttribute('data-chat-flow-key') ?? '';
-                return key.startsWith(token) || key.includes('"' + token);
-              });
-              if (exact !== undefined) return [exact];
-            }
-            return null;
-          };
-
-          /** Drop the cache and look again; used only before giving up. */
-          const fullScan = () => {
-            cache.clear();
-            return locateNow();
-          };
-
-          const tryLocate = () => {
-            const nodes = locateNow();
-            if (nodes === null) return false;
-            finish(nodes);
-            return true;
-          };
-
-          // ── turn rail ────────────────────────────────────────────────────────
-          // One mark per turn; the rail virtualises to a window of them, so it is
-          // scrolled to the target slot first and the mark is clicked afterwards.
-
-          const railOf = () => {
-            const mark = document.querySelector('button[data-index][aria-label^="跳转到第"]');
-            return mark === null ? null : mark.parentElement;
-          };
-
-          const markOf = (index) => document.querySelector('button[data-index="' + String(index) + '"]');
-
-          /** Marks currently rendered, in DOM order. */
-          const railMarks = (rail) => Array.from(rail.querySelectorAll('button[data-index]'))
-          .map((node) => ({ node, index: Number(node.getAttribute('data-index')) }))
-          .filter((entry) => Number.isFinite(entry.index));
-
-          /**
-           * Move the rail towards one slot.
-           *
-           * The rail may render in either direction, so the distance per index is taken
-           * from the two extreme rendered marks and applied as a relative delta instead
-           * of an absolute position. A fixed-page jump keeps progress when the slope
-           * cannot be measured.
-           */
-          const railSeek = (rail, host, slot) => {
-          const marks = railMarks(rail);
-          if (marks.length === 0) return false;
-          if (marks.length === 1) {
-            host.scrollTop = Math.max(0, host.scrollTop + (slot > marks[0].index ? host.clientHeight : -host.clientHeight));
-            return true;
-          }
-          const first = marks[0];
-          const last = marks[marks.length - 1];
-          const span = last.index - first.index;
-          const pixels = last.node.offsetTop - first.node.offsetTop;
-          if (span !== 0 && pixels !== 0) {
-            const delta = ((slot - first.index) * pixels) / span;
-            if (Number.isFinite(delta) && Math.abs(delta) > 0) {
-              host.scrollTop = Math.max(0, host.scrollTop + delta);
-              return true;
-            }
-          }
-          // Unknown geometry: move a viewport towards the target and retry.
-          const direction = slot > last.index ? 1 : -1;
-          host.scrollTop = Math.max(0, host.scrollTop + direction * host.clientHeight);
-          return true;
-          };
-
-          const tryRail = (done) => {
-            const rail = railOf();
-            if (rail === null) {
-              done(false, '未找到轨道');
+          /** Scroll the transcript so one occurrence of the keyword is centred. */
+          const scrollToKeyword = (row, queryText) => {
+            const needle = String(queryText ?? '').trim().toLowerCase();
+            if (needle === '') {
+              row.scrollIntoView({ block: 'center', behavior: 'smooth' });
               return;
             }
-            if (turn === null) {
-              done(false, '没有轮次信息');
-              return;
+            let scroller = row.parentElement;
+            while (scroller !== null && scroller !== document.body) {
+              const style = window.getComputedStyle(scroller);
+              if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && scroller.scrollHeight > scroller.clientHeight) break;
+              scroller = scroller.parentElement;
             }
-            const slot = turn - 1;
-            if (slot < 0) {
-              done(false, '轮次无效');
-              return;
-            }
-            // Already rendered: no scrolling needed.
-            const ready = markOf(slot);
-            if (ready !== null) {
-              ready.click();
-              done(true);
-              return;
-            }
-            const host = railHost(rail);
-            runtime.store.toast('info', '正在定位（跳到第 ' + String(turn) + ' 轮，按 ESC 取消）');
-            let tries = 0;
-            let lastTop = host.scrollTop;
-            let stuck = 0;
-            const attempt = () => {
-              if (settled === true) return;
-              const mark = markOf(slot);
-              if (mark !== null) {
-                mark.click();
-                done(true);
+            const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
+              acceptNode: (textNode) => (textNode.nodeValue ?? '').toLowerCase().includes(needle)
+                ? NodeFilter.FILTER_ACCEPT
+                : NodeFilter.FILTER_SKIP,
+            });
+            while (walker.nextNode() !== null) {
+              const textNode = walker.currentNode;
+              const value = textNode.nodeValue ?? '';
+              const at = value.toLowerCase().indexOf(needle);
+              if (at < 0) continue;
+              if (scroller === null) break;
+              const range = document.createRange();
+              range.setStart(textNode, at);
+              range.setEnd(textNode, at + needle.length);
+              const rect = range.getBoundingClientRect();
+              const box = scroller.getBoundingClientRect();
+              if (rect.height > 0) {
+                scroller.scrollTop += rect.top - box.top - box.height / 2 + rect.height / 2;
                 return;
               }
-              tries += 1;
-              if (tries > 15) {
-                done(false, '格子未渲染');
-                return;
-              }
-              railSeek(rail, host, slot);
-              if (Math.abs(host.scrollTop - lastTop) < 1) {
-                stuck += 1;
-                if (stuck >= 3) {
-                  done(false, '容器不可滚动');
+            }
+            row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          };
+
+          /** Row that carries most of the excerpt, or null. */
+          const pickRow = (rows) => {
+            const chunks = anchorText === ''
+              ? []
+              : (() => {
+                  const size = Math.max(10, Math.floor(anchorText.length / 3));
+                  const parts = [];
+                  for (let i = 0; i + size <= anchorText.length; i += size) parts.push(anchorText.slice(i, i + size));
+                  return parts;
+                })();
+            const needed = Math.max(2, Math.ceil(chunks.length * 0.6));
+            for (const row of rows) {
+              const text = bareText(row.textContent);
+              if (query !== '' && !text.includes(bareText(query))) continue;
+              if (chunks.length > 0 && chunks.filter((part) => text.includes(part)).length >= needed) return row;
+              if (probe.length >= 24 && text.includes(probe)) return row;
+            }
+            return null;
+          };
+
+          const attempt = () => {
+            if (settled === true) return;
+            tries += 1;
+            try {
+              const flows = Array.from(document.querySelectorAll('[data-chat-flow]'))
+                .filter((node) => node.querySelector('[data-chat-flow-key]') !== null);
+              for (const flow of flows) {
+                let rows = Array.from(flow.querySelectorAll('[data-chat-flow-key]'));
+                if (kinds !== null) {
+                  const byKind = rows.filter((row) => kinds.includes(row.getAttribute('data-chat-flow-kind') ?? ''));
+                  if (byKind.length > 0) rows = byKind;
+                }
+                const hit = pickRow(rows);
+                if (hit !== null) {
+                  finish(hit);
                   return;
                 }
-              } else {
-                stuck = 0;
-                lastTop = host.scrollTop;
               }
-              later(attempt, 150);
-            };
-            attempt();
-          };
-
-          /** Wait until the transcript actually holds the target turn. */
-          const waitForTurn = (done) => {
-            const started = Date.now();
-            const check = () => {
-              if (settled === true) return;
-              const range = renderedRange();
-              if (range !== null && turn !== null && range.low <= turn && turn <= range.high) {
-                done(true);
-                return;
-              }
-              if (locateNow() !== null) {
-                done(true);
-                return;
-              }
-              if (Date.now() - started >= 3000) {
-                done(false);
-                return;
-              }
-              later(check, 200);
-            };
-            check();
-          };
-
-          // ── page loading fallback ────────────────────────────────────────────
-
-          const ensureObserver = () => {
-            if (observer !== null) return;
-            const flow = flowNode();
-            if (flow === null) return;
-            observer = new MutationObserver((mutations) => {
-              for (const mutation of mutations) {
-                const node = mutation.target instanceof Element
-                  ? mutation.target
-                  : (mutation.target.parentElement ?? null);
-                const row = node === null ? null : node.closest('[data-chat-flow-key]');
-                if (row !== null) cache.delete(row.getAttribute('data-chat-flow-key') ?? '');
-              }
-              if (progressHook !== null) progressHook();
-            });
-            observer.observe(flow, { childList: true, subtree: true, characterData: true });
-          };
-
-          const loadOnePage = (done) => {
-            ensureObserver();
-            const before = { turn: oldestTurn(), height: scroller()?.scrollHeight ?? 0 };
-            const started = Date.now();
-            let answered = false;
-
-            const settle = (grew) => {
-              if (answered === true) return;
-              answered = true;
-              progressHook = null;
-              done(grew);
-            };
-
-            const check = () => {
-              if (settled === true) return;
-              const turnNow = oldestTurn();
-              const heightNow = scroller()?.scrollHeight ?? 0;
-              const moved = (before.turn !== null && turnNow !== null && turnNow < before.turn)
-                || heightNow > before.height + 40;
-              if (moved) {
-                settle(true);
-                return;
-              }
-              if (Date.now() - started >= PAGE_WAIT_MS) {
-                settle(false);
-                return;
-              }
-              later(check, POLL_MS);
-            };
-
-            progressHook = check;
-
-            const button = olderButton();
-            if (button !== null && button.disabled !== true) {
-              button.click();
-            } else {
-              // No visible pager: reaching the top is what makes the app page in more.
-              const target = scroller();
-              if (target === null) {
-                settle(false);
-                return;
-              }
-              target.scrollTop = 0;
+            } catch (error) {
+              console.warn('[dsh-enhanced] locate failed:', error);
             }
-            later(check, POLL_MS);
-          };
-
-          const advance = () => {
-            if (settled === true) return;
-            if (pages >= MAX_PAGES) {
-              const hit = fullScan();
-              if (hit !== null) {
-                finish(hit);
-                return;
-              }
-              fail('更早的历史过多，已停止定位');
+            if (tries >= 8) {
+              settled = true;
+              showJumpNotice('该命中在更早的会话中，已打开会话但未自动定位', 5000);
               return;
             }
-            if (stalls >= MAX_STALLS) {
-              const hit = fullScan();
-              if (hit !== null) {
-                finish(hit);
-                return;
-              }
-              fail('未找到目标（已到最旧）');
-              return;
-            }
-            pages += 1;
-            runtime.store.toast('info', '正在定位（已加载 ' + String(pages - 1) + ' 页，按 ESC 取消）');
-            loadOnePage((grew) => {
-              if (settled === true) return;
-              if (!grew) {
-                stalls += 1;
-                advance();
-                return;
-              }
-              stalls = 0;
-              if (tryLocate()) return;
-              advance();
-            });
+            window.setTimeout(attempt, 350);
           };
-
-          const startPaging = (reason) => {
-            if (settled === true) return;
-            if (tryLocate()) return;
-            if (flowNode() === null) {
-              fail('会话还没准备好，请稍后再试');
-              return;
-            }
-            if (typeof reason === 'string' && reason !== '') {
-              runtime.store.toast('info', '轨道不可用（' + reason + '），改用逐页加载');
-              // Let the reason stay readable before the page counter takes over.
-              later(() => {
-                if (settled !== true) advance();
-              }, 1200);
-              return;
-            }
-            advance();
-          };
-
-          // A message that is already rendered needs no navigation.
-          if (tryLocate()) return;
-          if (flowNode() === null) {
-            fail('会话还没准备好，请稍后再试');
-            return;
-          }
-          tryRail((clicked, reason) => {
-            if (settled === true) return;
-            if (!clicked) {
-              startPaging(reason);
-              return;
-            }
-            waitForTurn((arrived) => {
-              if (settled === true) return;
-              if (arrived && tryLocate()) return;
-              startPaging(arrived ? '轨道未定位到该轮' : reason);
-            });
-          });
+          attempt();
         };
 
-
-
-
-
-        runtime.focusMatch = async (sessionId, match, query) => {
-          let turn = null;
-          if (match !== null && match !== undefined && Number.isInteger(match.seq)) {
-            try {
-              const data = await runtime.rpc('locate.event', { sessionId, seq: match.seq });
-              if (Number.isInteger(data?.turn)) turn = data.turn;
-            } catch (error) {
-              console.warn('[dsh-enhanced] locating the event failed:', error);
-            }
-          }
-          runtime.jumpToAnchor({ turn, seq: match?.seq, snippet: match?.snippet, preview: match?.preview, previewHit: match?.previewHit, query });
+        runtime.focusMatch = (sessionId, match, query) => {
+          // The hit already names its session, and only mounted rows can be located,
+          // so the click navigates by text alone.
+          runtime.jumpToAnchor({
+            role: match?.role,
+            snippet: match?.snippet,
+            preview: match?.preview,
+            previewHit: match?.previewHit,
+            query,
+          });
         };
         runtime.rpc = async (action, payload, signal) => {
           const url = new URL('api/dsh-enhanced/rpc', document.baseURI);
@@ -3342,20 +3048,6 @@ const displayName = (value) => {
           return () => window.removeEventListener('keydown', onKeyDown, true);
         }, 'dsh-enhanced: restart shortcut');
 
-        ctx.effect(() => {
-          // ESC stops a long locate and puts the reader back where they were.
-          const onKeyDown = (event) => {
-            if (event.key !== 'Escape') return;
-            if (activeJump === null) return;
-            const state = runtime.store.get();
-            if (state?.search?.open === true) return;
-            event.preventDefault();
-            event.stopPropagation();
-            activeJump.abort('ESC');
-          };
-          window.addEventListener('keydown', onKeyDown, true);
-          return () => window.removeEventListener('keydown', onKeyDown, true);
-        }, 'dsh-enhanced: cancel locate');
 
 
         ctx.effect(() => {
