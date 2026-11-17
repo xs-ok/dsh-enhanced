@@ -1,0 +1,17 @@
+# 统一换行符策略
+# 仓库内文本一律以 LF 存储，检出时再按平台转换
+* text=auto
+
+# Windows 批处理与 PowerShell 脚本按 CRLF 检出
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制文件不做任何转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.zip binary
+*.gz binary
+*.zst binary
