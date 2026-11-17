@@ -25,3 +25,5 @@ $:
           type: git:release
           options:
             descriptionFromFile: release-notes.md
+            # 新建的 Release 直接标记为最新，避免页面仍停留在旧版本
+            latest: true
