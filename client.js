@@ -1762,6 +1762,7 @@ const displayName = (value) => {
           const markRect = mark.getBoundingClientRect();
           node.scrollTop += markRect.top - box.top - node.clientHeight / 2 + markRect.height / 2;
         }
+        return () => { node.remove(); };
       }, [preview, search.query]);
 
       const previewRef = React.useRef(null);
@@ -1769,6 +1770,7 @@ const displayName = (value) => {
       const previewGate = React.useRef(true);
       const previewHover = React.useRef(null);
       const previewPointer = React.useRef({ x: 0, y: 0 });
+      const previewEpoch = React.useRef(0);
 
       React.useEffect(() => {
         // Typing hides the preview; it may only reappear after the pointer moves.
@@ -1836,6 +1838,11 @@ const displayName = (value) => {
       }, [expanded]);
 
       React.useEffect(() => {
+        previewEpoch.current += 1;
+        if (previewHover.current !== null) {
+          window.clearTimeout(previewHover.current);
+          previewHover.current = null;
+        }
         setPreview(null);
       }, [search.open, search.groups]);
 
@@ -1941,12 +1948,15 @@ const displayName = (value) => {
                             if (previewGate.current === true) return;
                             const row = event.currentTarget;
                             if (event.clientX !== undefined) previewPointer.current = { x: event.clientX, y: event.clientY };
+                            const epoch = previewEpoch.current;
                             previewHover.current = window.setTimeout(() => {
+                              if (previewEpoch.current !== epoch) return;
                               previewHover.current = null;
                               const rect = row.getBoundingClientRect();
                               const dialog = row.closest('.dshe-search');
                               const box = dialog === null ? null : dialog.getBoundingClientRect();
-                              const width = box === null ? 420 : Math.min(460, Math.round(box.width * 0.62));
+                              const base = box !== null && box.width > 200 ? box.width : window.innerWidth;
+                              const width = Math.max(280, Math.min(460, Math.round(base * 0.62)));
                               const pointer = previewPointer.current;
                               const left = Math.max(12, Math.min(Math.round(pointer.x + 16), window.innerWidth - width - 12));
                               const spaceBelow = Math.round(window.innerHeight - rect.bottom - 12);
@@ -1974,7 +1984,16 @@ const displayName = (value) => {
                           },
                           key: `${group.sessionId}-${String(match.seq ?? 'title')}-${String(index)}`,
                           'data-active': index === active ? 'true' : 'false',
-                          onClick: () => open(group.sessionId, match),
+                          onClick: () => {
+                            previewEpoch.current += 1;
+                            if (previewHover.current !== null) {
+                              window.clearTimeout(previewHover.current);
+                              previewHover.current = null;
+                            }
+                            if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
+                            setPreview(null);
+                            open(group.sessionId, match);
+                          },
                         },
                           h('span', { className: 'dshe-match-time', 'data-tier': String(timeTier(formatMatchTime(match.time))) }, formatMatchTime(match.time)),
                           h('span', { className: 'dshe-role' }, runtime.t(`role.${match.role ?? 'body'}`)),
