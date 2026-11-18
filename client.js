@@ -73,6 +73,10 @@ window.__ModuleLoader__.load({
         'restart.desc': 'Restart the desktop app now?',
         'restart.confirm': 'Restart',
         'restart.busy': 'A turn is still running. Stop it, then restart.',
+        'restart.auto': '{reason} · restarting in {seconds}s',
+        'restart.reason.sync': 'Sync done',
+        'restart.reason.move': 'Session moved',
+        'restart.reason.restore': 'Cloud applied',
         'overwrite.cloud': 'Overwrite cloud',
         'overwrite.local': 'Overwrite this machine',
         'overwrite.awayCloud': 'Replaces the cloud with this machine\'s data. Nothing is merged.',
@@ -264,6 +268,10 @@ window.__ModuleLoader__.load({
         'restart.desc': '立即重启桌面应用？',
         'restart.confirm': '重启',
         'restart.busy': '有任务正在运行，结束或停止后再重启。',
+        'restart.auto': '{reason} · 即将自动重启 {seconds}s',
+        'restart.reason.sync': '同步完成',
+        'restart.reason.move': '会话已移动',
+        'restart.reason.restore': '已应用云端',
         'overwrite.cloud': '覆盖云端',
         'overwrite.local': '覆盖本机',
         'overwrite.awayCloud': '将以本机数据完全替换云端，不做合并。',
@@ -595,6 +603,7 @@ window.__ModuleLoader__.load({
         sync: { loading: false, busy: false, target: null, state: null, error: null, showLog: false, webdav: null, webdavBusy: false, history: [], historyOpen: null, historyLimit: 5, auto: null },
         overwrite: { open: false, direction: 'cloud', busy: false, preview: null, error: null },
         restartConfirm: false,
+        restartCountdown: null,
     presetEdit: null,
         presetReplace: null,
         pauseOpen: false,
@@ -616,6 +625,8 @@ window.__ModuleLoader__.load({
       && String(item.password ?? '') === String(settings.webdavPassword ?? '')
       && trim(item.root) === trim(settings.webdavRoot);
   }
+
+  let restartCountdownTimer = null;
 
   const store = {
         get: () => state,
@@ -652,6 +663,29 @@ window.__ModuleLoader__.load({
           } catch (error) {
             store.set({ ready: true });
             console.warn('[dsh-enhanced] initial state failed:', error);
+          }
+          // Launch-time catch-up: runs regardless of the automatic sync switch.
+          window.setTimeout(() => { void store.startupSync(); }, 2000);
+        },
+        /**
+         * Sync once shortly after launch, reusing the normal run path.
+         *
+         * Doing it here (instead of on the host) means a restart that follows can
+         * show its countdown in the UI first.
+         */
+        async startupSync() {
+          // Launch-time catch-up: unconditional on the sync switch, but it must not
+          // run while a turn is in progress.
+          if (store.get().sync.busy === true) return;
+          try {
+            const data = await runtime.rpc('sync.run', { quiet: true });
+            if (data?.skipped === 'busy') return;
+            store.set({ sync: { ...store.get().sync, state: data, error: null } });
+            await store.loadSync();
+            const pulled = Number(data?.summary?.sessions?.pulled) || Number(data?.summary?.sessions?.created) || 0;
+            if (pulled > 0) store.restartSoon('restart.reason.sync');
+          } catch (error) {
+            console.warn('[dsh-enhanced] startup sync failed:', error);
           }
         },
         async refreshCount() {
@@ -894,7 +928,7 @@ window.__ModuleLoader__.load({
             const warning = typeof data?.warning === 'string' && data.warning !== '' ? data.warning : null;
             store.toast(warning === null ? 'success' : 'info', warning ?? runtime.t('move.done', { title: target?.title ?? '' }));
             await store.refreshCount();
-            if (data?.needsRestart === true) store.restartApp();
+            if (data?.needsRestart === true) store.restartSoon('restart.reason.move');
           } catch (error) {
             store.set({ move: { ...state.move, busy: false, error: String(error?.message ?? error) } });
           }
@@ -948,14 +982,35 @@ window.__ModuleLoader__.load({
             await store.loadSync();
             const pulled = Number(data?.summary?.sessions?.pulled) || Number(data?.summary?.sessions?.created) || 0;
             if (pulled > 0) {
-              store.toast('success', `${runtime.t('sync.result.ok')}${runtime.t('sync.restartingSoon')}`);
-              store.restartApp();
+              store.restartSoon('restart.reason.sync');
             }
           } catch (error) {
             store.set({ sync: { ...state.sync, busy: false, error: String(error?.message ?? error) } });
             store.toast('error', String(error?.message ?? error));
             await store.loadSync();
           }
+        },
+        /**
+         * Announce an automatic restart, counting down from three, then restart.
+         */
+        restartSoon(reasonKey) {
+          if (restartCountdownTimer !== null) return;
+          const reason = runtime.t(reasonKey);
+          let left = 3;
+          const tick = () => {
+            store.toast('info', runtime.t('restart.auto', { reason, seconds: String(left) }));
+            if (left === 0) {
+              window.clearInterval(restartCountdownTimer);
+              restartCountdownTimer = null;
+              store.set({ restartCountdown: null });
+              store.restartApp();
+              return;
+            }
+            store.set({ restartCountdown: left });
+            left -= 1;
+          };
+          tick();
+          restartCountdownTimer = window.setInterval(tick, 1000);
         },
         /** Restart the app so a structural change becomes visible. */
         restartApp() {
@@ -1119,7 +1174,7 @@ window.__ModuleLoader__.load({
               : runtime.t('overwrite.localDone', { n: String(result?.copied ?? 0) }));
             await store.loadSync();
             // Replacing this machine wholesale only takes effect after a restart.
-            if (direction === 'local') store.restartApp();
+            if (direction === 'local') store.restartSoon('restart.reason.restore');
           } catch (error) {
             store.set({ overwrite: { ...state.overwrite, busy: false, error: String(error?.message ?? error) } });
           }

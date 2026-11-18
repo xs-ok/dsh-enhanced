@@ -84,7 +84,6 @@ export function installSyncScheduler(ctx, deps) {
   let failures = 0;
   let paused = false;
   let pausedAt = null;
-  let startupTimer = null;
   let lastIntervalAt = 0;
   let lastDailyKey = '';
 
@@ -263,12 +262,8 @@ async function autoRun(reason) {
     return status();
   };
 
-  // Catch up with other machines right after launch: the first idle edge may be
-  // minutes away. The cooldown still applies, so a restart right after a sync
-  // costs nothing.
-  startupTimer = setTimeout(() => {
-    void autoRun('startup');
-  }, 5000);
+  // Launch-time catch-up is driven by the client, so the reader sees the restart
+  // countdown before the window closes. Host-side runs stay on idle/interval/daily.
 
   const statusListener = ctx.on('agent/status', (payload) => {
     trace(`agent/status=${String(payload?.status)}`);
@@ -288,7 +283,6 @@ async function autoRun(reason) {
     if (tick !== null) clearInterval(tick);
     if (idleTimer !== null) clearTimeout(idleTimer);
     if (retryTimer !== null) clearTimeout(retryTimer);
-    if (startupTimer !== null) clearTimeout(startupTimer);
     if (typeof statusListener === 'function') statusListener();
   };
 

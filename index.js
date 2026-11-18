@@ -150,6 +150,15 @@ export function apply(ctx, config = {}) {
       }
       case 'sync.probe':
       case 'sync.run': {
+        // A running turn is writing session files; syncing then risks reading a
+        // half-written log. The launch-time call asks for quiet so it can skip.
+        if (action === 'sync.run') {
+          const busy = (ctx.get('agents')?.list?.() ?? []).some((agent) => agent?.status === 'running');
+          if (busy) {
+            if (request?.quiet === true) return { skipped: 'busy' };
+            throw failure('sync-task-running', '有会话正在运行，稍后再同步。');
+          }
+        }
         const settings = await readSettings(paths);
         return runSync({ paths, settings, agents: ctx.get('agents'), registry: ctx.workspaceRegistry }, { probe: action === 'sync.probe' });
       }
