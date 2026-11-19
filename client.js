@@ -594,9 +594,11 @@ window.__ModuleLoader__.load({
 .dshe-preset-chip{display:inline-flex;align-items:center;gap:4px}
 .dshe-action-active{background:var(--dsw-alias-brand-primary,#3b6ef5);color:#fff;border-color:transparent}
 .dshe-action-danger{color:var(--dsw-alias-state-error-primary,#c0392b);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#c0392b) 45%,transparent)}
-.dshe-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);pointer-events:auto;z-index:2010;  background:var(--dsw-alias-bg-overlay,#fff);color:var(--dsw-alias-label-primary,#1b1d22);border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.12));
-  border-radius:10px;padding:8px 14px;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.2);max-width:70vw}
-.dshe-toast[data-kind="error"]{color:var(--dsw-alias-state-error-primary,#c0392b)}
+.dshe-toast{position:static;pointer-events:auto;z-index:2010;
+  background:rgba(24,26,30,.96);color:#fff;border:1px solid rgba(255,255,255,.18);
+  border-radius:14px;padding:10px 18px;font-size:13px;line-height:1.5;
+  box-shadow:0 18px 40px rgba(0,0,0,.38);max-width:70vw;user-select:none}
+.dshe-toast[data-kind="error"]{color:#ff4600}
 `;
 
     // ── store ────────────────────────────────────────────────────────────────
@@ -1485,6 +1487,31 @@ function highlightFocus(text, query, focusIndex) {
           runtime.store.requestDelete(sessionId, displayTitle, running);
         },
       }, running ? runtime.t('delete.running') : runtime.t('delete.label'));
+    }
+
+    /**
+     * Dismiss on a double click anywhere in the window.
+     *
+     * A single click stays harmless, so a stray click does not hide a notice the
+     * reader is still reading. The listener lives on the document, so a double
+     * click on the notice, on the chat, or in the sidebar all count.
+     */
+    function armQuickClose(node, close) {
+      let done = false;
+      const onDouble = () => {
+        if (done) return;
+        done = true;
+        document.removeEventListener('dblclick', onDouble, true);
+        close();
+      };
+      const onSingle = (event) => event.stopPropagation();
+      node.addEventListener('click', onSingle);
+      document.addEventListener('dblclick', onDouble, true);
+      return () => {
+        done = true;
+        document.removeEventListener('dblclick', onDouble, true);
+        node.removeEventListener('click', onSingle);
+      };
     }
 
     /**
@@ -2760,9 +2787,11 @@ const displayName = (value) => {
         if (host === null) {
           host = document.createElement('div');
           host.id = 'dshe-toast-host';
-          host.style.cssText = 'position:fixed;left:0;right:0;bottom:28px;display:flex;justify-content:center;pointer-events:none;z-index:2147483000';
           document.body.appendChild(host);
         }
+        // A full-window flex box keeps every toast dead centre; rewriting it each
+        // time also repairs a host left behind by an older build.
+        host.style.cssText = 'position:fixed;top:33vh;left:0;right:0;display:flex;justify-content:center;pointer-events:none;z-index:2147483000';
         host.textContent = '';
         if (toast === null || toast === undefined) return;
         const node = document.createElement('div');
@@ -2774,7 +2803,12 @@ const displayName = (value) => {
         node.style.left = 'auto';
         node.style.bottom = 'auto';
         node.textContent = String(toast.text ?? '');
+        const release = armQuickClose(node, () => { node.remove(); });
         host.appendChild(node);
+        return () => {
+          release();
+          node.remove();
+        };
       }, [toast]);
       return null;
     }
@@ -3047,7 +3081,7 @@ const displayName = (value) => {
             node.style.cssText = [
               'position:fixed',
               'z-index:2147483002',
-              'top:44px',
+              'top:33vh',
               'left:50%',
               'transform:translateX(-50%)',
               'pointer-events:auto',
@@ -3063,10 +3097,16 @@ const displayName = (value) => {
               'max-width:70vw',
               'text-align:center',
               'cursor:pointer',
+              'user-select:none',
             ].join(';');
-            node.addEventListener('click', () => node.remove());
+            let release = () => {};
+            const closeNotice = () => {
+              release();
+              node.remove();
+            };
+            release = armQuickClose(node, closeNotice);
             document.body.appendChild(node);
-            window.setTimeout(() => node.remove(), typeof ms === 'number' ? ms : 5000);
+            window.setTimeout(closeNotice, typeof ms === 'number' ? ms : 5000);
           } catch (error) {
             console.warn('[dsh-enhanced] notice failed:', error);
           }
