@@ -216,6 +216,12 @@ window.__ModuleLoader__.load({
         'delete.failed': 'Delete failed: {message}',
         'delete.blocked': 'A running session cannot be deleted.',
         'move.label': 'Move to workspace…',
+        'hover.sessionId': 'Session ID: ',
+        'hover.copy.title': 'Session name',
+        'hover.copy.id': 'Session ID',
+        'hover.copy.path': 'Workspace path',
+        'hover.copy.done': 'Copied: {label}',
+        'hover.copy.failed': 'Copy failed: {label}',
         'move.running': 'Move to workspace (running)',
         'move.title': 'Move to workspace',
         'move.desc': 'Moves the session into the target workspace in place: the session itself is unchanged and only its working directory becomes the target. Later tool calls run there. The new grouping appears after the app restarts.',
@@ -411,6 +417,12 @@ window.__ModuleLoader__.load({
         'delete.failed': '删除失败：{message}',
         'delete.blocked': '运行中的会话不可删除。',
         'move.label': '移动到工作区…',
+        'hover.sessionId': '会话ID：',
+        'hover.copy.title': '会话名称',
+        'hover.copy.id': '会话ID',
+        'hover.copy.path': '工作区路径',
+        'hover.copy.done': '已复制：{label}',
+        'hover.copy.failed': '复制失败：{label}',
         'move.running': '移动到工作区（运行中）',
         'move.title': '移动到工作区',
         'move.desc': '将该会话整体移入目标工作区：会话本身不变，只是工作目录改到目标目录，之后的工具调用会在那里执行。分组变化需要重启应用后完全生效。',
@@ -1473,6 +1485,129 @@ function highlightFocus(text, query, focusIndex) {
           runtime.store.requestDelete(sessionId, displayTitle, running);
         },
       }, running ? runtime.t('delete.running') : runtime.t('delete.label'));
+    }
+
+    /**
+     * Put one string on the clipboard, then say what happened.
+     *
+     * The async Clipboard API needs a secure context; the textarea fallback keeps
+     * the action working when the page is served from elsewhere.
+     */
+    async function copyWithNotice(value, labelKey) {
+      const label = runtime.t(labelKey);
+      const done = () => runtime.store.toast('success', runtime.t('hover.copy.done', { label }));
+      const failed = () => runtime.store.toast('error', runtime.t('hover.copy.failed', { label }));
+      try {
+        await navigator.clipboard.writeText(value);
+        done();
+        return;
+      } catch {
+        // fall through to the legacy path
+      }
+      try {
+        const area = document.createElement('textarea');
+        area.value = value;
+        area.setAttribute('readonly', '');
+        area.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+        document.body.appendChild(area);
+        area.select();
+        const ok = document.execCommand('copy');
+        area.remove();
+        if (ok) done();
+        else failed();
+      } catch {
+        failed();
+      }
+    }
+
+    /**
+     * Session id line inside the row's hover card.
+     *
+     * The hover slot sits below the relative time, but the id reads better right
+     * under the title, so the slot only carries the session identity: the line
+     * itself is created imperatively and parked after the title element, which
+     * keeps React's own layout untouched. Any structural surprise means no line.
+     */
+    function SessionIdRow(props) {
+      const id = typeof props?.sessionId === 'string' ? props.sessionId : '';
+      const markerRef = React.useRef(null);
+
+      React.useEffect(() => {
+        const marker = markerRef.current;
+        if (marker === null || id === '') return undefined;
+        try {
+          const host = marker.closest('[data-slot="sidebar.session.row.hover"]');
+          const content = host === null ? null : host.parentElement;
+          const title = content === null ? null : content.firstElementChild;
+          if (title === null) return undefined;
+
+          const children = Array.from(content.children);
+          const candidatePath = children.length > 1 ? children[1] : null;
+          // The path line is the one carrying a separator; a reshaped card just
+          // leaves this field unbound.
+          const pathText = candidatePath === null ? '' : (candidatePath.textContent ?? '').trim();
+          const pathLine = /[\\/:]/.test(pathText) ? candidatePath : null;
+
+          // The card's own click copies the session id; each field now copies its
+          // own text instead, so a mis-click still produces something useful.
+          const bindings = [];
+          const bind = (element, value, labelKey) => {
+            if (element === null || typeof value !== 'string' || value.trim() === '') return;
+            const handler = (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void copyWithNotice(value.trim(), labelKey);
+            };
+            element.addEventListener('click', handler);
+            element.style.cursor = 'pointer';
+            bindings.push({ element, handler });
+          };
+
+          bind(title, title.textContent ?? '', 'hover.copy.title');
+          bind(pathLine, pathLine === null ? '' : pathLine.textContent ?? '', 'hover.copy.path');
+
+          const line = document.createElement('div');
+          line.className = 'dshe-session-id';
+          line.title = id;
+          line.dataset.sessionId = id;
+          line.style.cssText = [
+            'margin-top:2px',
+            'color:var(--dsw-alias-hovercard-label-secondary, currentColor)',
+            'font-size:12px',
+            'line-height:16px',
+            'overflow-wrap:anywhere',
+            'word-break:break-all',
+            'user-select:text',
+            'cursor:pointer',
+          ].join(';');
+          line.textContent = runtime.t('hover.sessionId') + id;
+          line.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void copyWithNotice(id, 'hover.copy.id');
+          });
+          title.insertAdjacentElement('afterend', line);
+
+          // The slot's own wrapper also forwards clicks to the card; keep it quiet.
+          const markerClick = (event) => event.stopPropagation();
+          marker.addEventListener('click', markerClick);
+
+          return () => {
+            for (const binding of bindings) {
+              binding.element.removeEventListener('click', binding.handler);
+              binding.element.style.cursor = '';
+            }
+            marker.removeEventListener('click', markerClick);
+            line.remove();
+          };
+        } catch {
+          // A layout change without a line is better than a broken card.
+          return undefined;
+        }
+      }, [id]);
+
+      if (id === '') return null;
+      return h('span', { ref: markerRef, style: { display: 'none' } });
     }
 
     // ── delete confirmation ──────────────────────────────────────────────────
@@ -3318,6 +3453,14 @@ const displayName = (value) => {
           order: 520,
           locale: NS,
         }, SessionMoveRow));
+
+        // Session id inside the row's hover card, between time and status.
+        ctx.slots.inject('sidebar.session.row.hover', () => ctx.slots.register({
+          name: 'sidebar.session.row.hover',
+          id: 'dsh-enhanced.session-id',
+          order: 20,
+          locale: NS,
+        }, SessionIdRow));
 
 
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
