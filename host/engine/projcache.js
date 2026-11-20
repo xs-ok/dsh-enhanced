@@ -83,7 +83,17 @@ async function indexShards(dir) {
  * @returns counters for the run summary.
  */
 export async function mergeProjcacheTitles(deps) {
-  const { localDir, sharedDir, stateDir, machineId, force = false, apply = true } = deps;
+  const {
+    localDir,
+    sharedDir,
+    stateDir,
+    machineId,
+    force = false,
+    apply = true,
+    // Sessions the blank-session guard keeps out of the share this run: their
+    // shard must not be mirrored either, or the empty state would still travel.
+    skipIds = new Set(),
+  } = deps;
   const localIndex = await indexShards(localDir);
   const sharedIndex = await indexShards(sharedDir);
   if (localIndex.size === 0 && sharedIndex.size === 0) {
@@ -101,6 +111,10 @@ export async function mergeProjcacheTitles(deps) {
   let untouched = 0;
 
   for (const id of new Set([...localIndex.keys(), ...sharedIndex.keys()])) {
+    if (skipIds.has(id)) {
+      untouched += 1;
+      continue;
+    }
     const localEntry = localIndex.get(id);
     const sharedEntry = sharedIndex.get(id);
     const currentLocal = localEntry === undefined ? -1 : localEntry.mtime;

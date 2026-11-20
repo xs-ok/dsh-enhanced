@@ -164,6 +164,9 @@ async function runSyncJsInner(deps) {
       }
     }
 
+    // A session that was created but never used carries a blank projection shard;
+    // uploading it hides the conversation on every machine that later pulls it.
+    // The session phase applies that guard while it already holds the scan.
     sessions = await step('sessions', () => syncSessions({
       localRoot: localSessions,
       sharedRoot: sharedSessions,
@@ -171,6 +174,8 @@ async function runSyncJsInner(deps) {
       machineId,
       resolveCwd,
       apply,
+      cacheDir: path.join(dshHome, 'storages', 'session_projcache', 'sessions'),
+      guardStateFile: path.join(dshHome, 'dsh-enhanced', 'blank-guard-state.json'),
       journalFile: path.join(dshHome, 'dsh-enhanced', 'delete-journal.json'),
     }));
 
@@ -250,6 +255,7 @@ async function runSyncJsInner(deps) {
       machineId,
       force: !apply,
       apply,
+      skipIds: sessions.blankGuard?.skipIds ?? new Set(),
     }));
 
     pluginList = await step('plugins', () => (apply
@@ -292,6 +298,7 @@ async function runSyncJsInner(deps) {
       prune: { quarantined: prune.quarantined, hardDeleted: prune.hardDeleted, sharedDeleted: prune.sharedDeleted, kept: prune.kept, throttled: prune.throttled, quarantinePurged: prune.quarantinePurged ?? 0 },
       workspace: { local: Object.keys(workspace.local?.tables?.workspaces ?? {}).length, shared: Object.keys(workspace.shared?.tables?.workspaces ?? {}).length, skipped: workspace.skipped ?? null, error: workspace.error ?? null },
       titleMerge: projcache,
+      blankGuard: { skipped: sessions.blankGuard?.skipped ?? 0, repaired: sessions.blankGuard?.repaired ?? 0 },
       plugins: pluginList.count,
       archive: { released: archive.released.length, archived: archive.archived.length, eventsPruned: prunedEvents.removed },
       missing: { sessions: sessions.missing ?? 0, groups: missingGroups.length },
@@ -326,6 +333,7 @@ async function runSyncJsInner(deps) {
     },
     workspace: { local: Object.keys(workspace.local?.tables?.workspaces ?? {}).length, shared: Object.keys(workspace.shared?.tables?.workspaces ?? {}).length, skipped: workspace.skipped ?? null, error: workspace.error ?? null },
     titleMerge: projcache,
+    blankGuard: { skipped: sessions.blankGuard?.skipped ?? 0, repaired: sessions.blankGuard?.repaired ?? 0 },
     plugins: pluginList.count,
     archive: { released: archive.released.length, archived: archive.archived.length, eventsPruned: prunedEvents.removed },
     missing: { sessions: sessions.missing ?? 0, groups: missingGroups.length },

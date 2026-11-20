@@ -195,6 +195,12 @@ function logLines(summary, transport, titleMap = new Map()) {
     ...(summary.sessions?.pushedIds ?? []).map((id) => `推送上云：${titleMap.get(id) ?? id}`),
     ...(summary.sessions?.pulledIds ?? []).map((id) => `从云取回：${titleMap.get(id) ?? id}`),
   ]);
+  const guardSkipped = Number(summary.blankGuard?.skipped) || 0;
+  const guardRepaired = Number(summary.blankGuard?.repaired) || 0;
+  if (guardSkipped > 0 || guardRepaired > 0) {
+    const repaired = guardRepaired > 0 ? `，修复过期缓存 ${counts(guardRepaired)} 个` : '';
+    push(`空白会话：跳过 ${counts(guardSkipped)} 个${repaired}`);
+  }
   push(configCopied === 0 && attachCopied === 0
     ? '配置附件：双端一致，无更新'
     : `配置附件：更新配置 ${counts(configCopied)} 个、附件 ${counts(attachCopied)} 个`,

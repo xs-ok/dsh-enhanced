@@ -9,6 +9,7 @@ import { promises as fsp } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { scanSessions, projectKey } from './scan.js';
+import { buildBlankGuard } from './blank-guard.js';
 import { lastContentSeq, readSessionFile, rewriteCwd, writeSessionFile } from './session.js';
 import {
   SESSION_LEDGER,
@@ -143,6 +144,8 @@ export async function syncSessions(deps) {
     skipIds = new Set(),
     apply = true,
     journalFile = null,
+    cacheDir = null,
+    guardStateFile = null,
     sharedTrashRoot = path.join(path.dirname(sharedRoot), 'trash'),
   } = deps;
 
@@ -255,9 +258,23 @@ export async function syncSessions(deps) {
   }
 
   // 3. Push local sessions the share does not have (or has in an older state).
+  //    A session that was created but never used carries a blank projection
+  //    shard; letting it reach the share hides the conversation on every machine
+  //    that later pulls it, so the guard keeps it (and its shard) out. The scan
+  //    above is reused: no second walk of the sessions root.
+  let blankGuard = { skipIds: new Set(), skipped: 0, repaired: 0 };
+  if (cacheDir !== null) {
+    try {
+      blankGuard = await buildBlankGuard({ sessions: local, cacheDir, apply, stateFile: guardStateFile });
+    } catch {
+      blankGuard = { skipIds: new Set(), skipped: 0, repaired: 0 };
+    }
+  }
+  const guardedIds = new Set([...skipIds, ...blankGuard.skipIds]);
+
   for (const [id, entry] of local) {
     if (ledger.deleted[id] !== undefined) continue;
-    if (skipIds.has(id)) {
+    if (guardedIds.has(id)) {
       skipped += 1;
       continue;
     }
@@ -310,7 +327,7 @@ export async function syncSessions(deps) {
   let missing = 0;
   for (const [id, entry] of refreshedShare) {
     if (ledger.deleted[id] !== undefined) continue;
-    if (skipIds.has(id)) continue;
+    if (guardedIds.has(id)) continue;
     const localEntry = local.get(id);
     if (localEntry !== undefined) {
       const sharedSeq = await lastContentSeq(entry.file);
@@ -359,5 +376,5 @@ export async function syncSessions(deps) {
     await writeJsonAtomic(legacyFile, { version: 1, deleted: {} });
   }
 
-  return { pushed, pulled, skipped, revived, tombstoned, created, missing, failed, trashed: Object.keys(ledger.deleted).length, pushedIds, pulledIds };
+  return { pushed, pulled, skipped, revived, tombstoned, created, missing, failed, trashed: Object.keys(ledger.deleted).length, pushedIds, pulledIds, blankGuard };
 }
