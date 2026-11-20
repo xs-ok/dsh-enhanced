@@ -80,6 +80,18 @@ export function installSyncScheduler(ctx, deps) {
   let retryTimer = null;
   let disposed = false;
   let running = false;
+  // Subscribers are told about start and finish so a reader can follow the run
+  // without polling.
+  const watchers = new Set();
+  const notifyWatchers = () => {
+    for (const watcher of [...watchers]) {
+      try {
+        watcher();
+      } catch {
+        // A broken watcher must not affect the run.
+      }
+    }
+  };
   let cooldownUntil = 0;
   let failures = 0;
   let paused = false;
@@ -176,6 +188,7 @@ async function autoRun(reason) {
       return false;
     }
     running = true;
+    notifyWatchers();
     trace(`autoRun ${reason}: start`);
     try {
       const record = await runSync({ paths, settings, agents }, { probe: false });
@@ -212,6 +225,7 @@ async function autoRun(reason) {
       note(`${reason}: ${String(error?.message ?? error)}${paused ? ', auto sync paused' : ''}`, 'error');
     } finally {
       running = false;
+      notifyWatchers();
       cooldownUntil = Date.now() + Math.max(1, Number(settings.syncCooldownMinutes) || 5) * 60_000;
     }
   }
@@ -253,6 +267,12 @@ async function autoRun(reason) {
 
   const status = () => ({ paused, failures, pausedAt, cooldownUntil, running });
 
+  /** Wake every waiting reader; the returned function unsubscribes. */
+  const subscribe = (watcher) => {
+    watchers.add(watcher);
+    return () => watchers.delete(watcher);
+  };
+
   const resume = () => {
     failures = 0;
     paused = false;
@@ -284,7 +304,8 @@ async function autoRun(reason) {
     if (idleTimer !== null) clearTimeout(idleTimer);
     if (retryTimer !== null) clearTimeout(retryTimer);
     if (typeof statusListener === 'function') statusListener();
+    watchers.clear();
   };
 
-  return { dispose, status, resume };
+  return { dispose, status, resume, subscribe };
 }

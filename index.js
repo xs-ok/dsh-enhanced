@@ -148,6 +148,36 @@ export function apply(ctx, config = {}) {
         const history = await readSyncHistory({ paths, settings });
         return { settings: { syncEnabled: settings.syncEnabled, syncDir: settings.syncDir, syncScript: settings.syncScript, syncMachineId: settings.syncMachineId, syncSkipAttachments: settings.syncSkipAttachments }, target, state, history, auto: scheduler.status(), running: live };
       }
+      case 'sync.watch': {
+        // Resolve as soon as the automatic run starts or stops (or after 25 s),
+        // so the client follows the state without a polling timer.
+        const current = () => {
+          const live = typeof ctx.get('agents')?.list === 'function'
+            ? ctx.get('agents').list().filter((agent) => agent?.status === 'running').length
+            : 0;
+          return { auto: scheduler.status(), running: live };
+        };
+        return await new Promise((resolve) => {
+          let settled = false;
+          let unsubscribe = () => {};
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            unsubscribe();
+            clearTimeout(timer);
+            resolve(current());
+          };
+          const timer = setTimeout(finish, 25_000);
+          unsubscribe = scheduler.subscribe(finish);
+          signal?.addEventListener?.('abort', finish, { once: true });
+        });
+      }
+      case 'sync.auto': {
+        const live = typeof ctx.get('agents')?.list === 'function'
+          ? ctx.get('agents').list().filter((agent) => agent?.status === 'running').length
+          : 0;
+        return { auto: scheduler.status(), running: live };
+      }
       case 'sync.probe':
       case 'sync.run': {
         // A running turn is writing session files; syncing then risks reading a

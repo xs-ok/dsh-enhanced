@@ -599,6 +599,9 @@ window.__ModuleLoader__.load({
   border-radius:14px;padding:10px 18px;font-size:13px;line-height:1.5;
   box-shadow:0 18px 40px rgba(0,0,0,.38);max-width:70vw;user-select:none}
 .dshe-toast[data-kind="error"]{color:#ff4600}
+.dshe-toast-spinner{display:inline-block;width:14px;height:14px;margin-left:8px;vertical-align:-2px;
+  animation:dshe-toast-spin .8s linear infinite}
+@keyframes dshe-toast-spin{to{transform:rotate(360deg)}}
 `;
 
     // ── store ────────────────────────────────────────────────────────────────
@@ -617,6 +620,7 @@ window.__ModuleLoader__.load({
         sync: { loading: false, busy: false, target: null, state: null, error: null, showLog: false, webdav: null, webdavBusy: false, history: [], historyOpen: null, historyLimit: 5, auto: null },
         overwrite: { open: false, direction: 'cloud', busy: false, preview: null, error: null },
         restartConfirm: false,
+        syncLive: false,
         restartCountdown: null,
     presetEdit: null,
         presetReplace: null,
@@ -663,8 +667,25 @@ window.__ModuleLoader__.load({
         },
         toast(kind, text) {
           if (toastTimer !== null) clearTimeout(toastTimer);
+          toastTimer = null;
           store.set({ toast: { kind, text, id: Date.now() } });
           toastTimer = setTimeout(() => store.set({ toast: null }), kind === 'error' ? 5000 : 3000);
+        },
+        /** A notice that stays until the work finishes; the spinner shows progress. */
+        toastBusy(text) {
+          if (toastTimer !== null) {
+            clearTimeout(toastTimer);
+            toastTimer = null;
+          }
+          store.set({ toast: { kind: 'info', text, spinner: true, id: Date.now() } });
+        },
+        /** Remove the sticky notice once the work has an answer of its own. */
+        clearToast() {
+          if (toastTimer !== null) {
+            clearTimeout(toastTimer);
+            toastTimer = null;
+          }
+          store.set({ toast: null });
         },
         async init() {
           try {
@@ -680,6 +701,9 @@ window.__ModuleLoader__.load({
           }
           // Launch-time catch-up: runs regardless of the automatic sync switch.
           window.setTimeout(() => { void store.startupSync(); }, 2000);
+          // Follow the automatic sync only; the manual one has its own notice.
+          // The call waits until the run flips, so there is no polling timer.
+          void store.watchSyncState();
         },
         /**
          * Sync once shortly after launch, reusing the normal run path.
@@ -969,6 +993,23 @@ window.__ModuleLoader__.load({
             store.set({ sync: { ...state.sync, loading: false, error: String(error?.message ?? error) } });
           }
         },
+        /**
+         * Wait for the AUTOMATIC sync to start or stop, then wait again.
+         *
+         * The host resolves the call when the run flips (or after 25 s), so the
+         * badge updates at once and the idle cost is one open request.
+         */
+        async watchSyncState() {
+          for (;;) {
+            try {
+              const data = await runtime.rpc('sync.watch');
+              store.set({ syncLive: data?.auto?.running === true });
+            } catch {
+              // A dropped connection only means a short pause before retrying.
+              await new Promise((resolve) => { window.setTimeout(resolve, 3000); });
+            }
+          }
+        },
         async probeSync() {
           if (state.sync.busy) return;
           store.set({ sync: { ...state.sync, busy: true, error: null } });
@@ -984,8 +1025,10 @@ window.__ModuleLoader__.load({
         async runSyncNow() {
           if (state.sync.busy) return;
           store.set({ sync: { ...state.sync, busy: true, error: null } });
+          store.toastBusy(runtime.t('sync.running'));
           try {
             const data = await runtime.rpc('sync.run');
+            store.clearToast();
             store.set({ sync: { ...state.sync, busy: false, state: data, error: null } });
             store.toast(
               data?.ok === false ? 'error' : 'success',
@@ -999,6 +1042,7 @@ window.__ModuleLoader__.load({
               store.restartSoon('restart.reason.sync');
             }
           } catch (error) {
+            store.clearToast();
             store.set({ sync: { ...state.sync, busy: false, error: String(error?.message ?? error) } });
             store.toast('error', String(error?.message ?? error));
             await store.loadSync();
@@ -2803,6 +2847,31 @@ const displayName = (value) => {
         node.style.left = 'auto';
         node.style.bottom = 'auto';
         node.textContent = String(toast.text ?? '');
+        if (toast.spinner === true) {
+          const spinner = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          spinner.setAttribute('class', 'dshe-toast-spinner');
+          spinner.setAttribute('viewBox', '0 0 16 16');
+          spinner.setAttribute('aria-hidden', 'true');
+          const track = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          track.setAttribute('cx', '8');
+          track.setAttribute('cy', '8');
+          track.setAttribute('r', '6');
+          track.setAttribute('fill', 'none');
+          track.setAttribute('stroke', 'rgba(255,255,255,.28)');
+          track.setAttribute('stroke-width', '2');
+          const arc = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          arc.setAttribute('cx', '8');
+          arc.setAttribute('cy', '8');
+          arc.setAttribute('r', '6');
+          arc.setAttribute('fill', 'none');
+          arc.setAttribute('stroke', '#fff');
+          arc.setAttribute('stroke-width', '2');
+          arc.setAttribute('stroke-linecap', 'round');
+          arc.setAttribute('stroke-dasharray', '26 12');
+          spinner.appendChild(track);
+          spinner.appendChild(arc);
+          node.appendChild(spinner);
+        }
         const release = armQuickClose(node, () => { node.remove(); });
         host.appendChild(node);
         return () => {
@@ -2811,6 +2880,42 @@ const displayName = (value) => {
         };
       }, [toast]);
       return null;
+    }
+
+    /**
+     * A small right-aligned line under the composer while an automatic sync runs.
+     *
+     * Text and spinner follow the surrounding system text: no background, the
+     * secondary label colour, 12 px, with the icon inheriting the same colour.
+     */
+    function SyncRunningBadge() {
+      const state = useStore();
+      if (state.syncLive !== true) return null;
+      return h('div', {
+        className: 'dshe-sync-inline',
+        style: {
+          display: 'flex',
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '0 10px 2px',
+          fontSize: '12px',
+          lineHeight: '16px',
+          color: 'var(--dsw-alias-label-secondary, currentColor)',
+          pointerEvents: 'none',
+        },
+      },
+        h('span', null, runtime.t('sync.running')),
+        h('svg', {
+          className: 'dshe-toast-spinner',
+          viewBox: '0 0 16 16',
+          width: '12',
+          height: '12',
+          'aria-hidden': 'true',
+          style: { flex: 'none' },
+        },
+          h('circle', { cx: '8', cy: '8', r: '6', fill: 'none', stroke: 'currentColor', strokeOpacity: '0.25', strokeWidth: '2' }),
+          h('circle', { cx: '8', cy: '8', r: '6', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeDasharray: '26 12' })));
     }
 
     /** Environment check result, including the "export report" path. */
@@ -3516,6 +3621,13 @@ const displayName = (value) => {
           order: 910,
           locale: NS,
         }, OverlayStack));
+
+        ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+          name: 'conversation.composer.dock',
+          id: 'dsh-enhanced.sync-running',
+          order: 40,
+          locale: NS,
+        }, SyncRunningBadge));
 
         ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
           name: 'conversation.input.left',
