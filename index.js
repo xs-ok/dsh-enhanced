@@ -79,6 +79,27 @@ export function apply(ctx, config = {}) {
     }
   })();
 
+  // Bumped for every committed user message; the composer badge watches it to
+  // know the reader sent something and the finished-sync line may go away.
+  let userMessageSeq = 0;
+  const watchWaiters = new Set();
+  try {
+    ctx.effect(() => ctx.on('session/event', (session, event) => {
+      if (event?.type !== 'user/message') return;
+      userMessageSeq += 1;
+      // Wake the waiting call so the client sees the new count immediately.
+      for (const wake of [...watchWaiters]) {
+        try {
+          wake();
+        } catch {
+          // A broken waiter must not affect the others.
+        }
+      }
+    }), 'dsh-enhanced: user message counter');
+  } catch {
+    // Without the event the line simply clears on the next sync instead.
+  }
+
   const dependencies = (settings) => ({
     paths,
     settings,
@@ -155,7 +176,7 @@ export function apply(ctx, config = {}) {
           const live = typeof ctx.get('agents')?.list === 'function'
             ? ctx.get('agents').list().filter((agent) => agent?.status === 'running').length
             : 0;
-          return { auto: scheduler.status(), running: live };
+          return { auto: scheduler.status(), running: live, userSeq: userMessageSeq };
         };
         return await new Promise((resolve) => {
           let settled = false;
@@ -164,11 +185,13 @@ export function apply(ctx, config = {}) {
             if (settled) return;
             settled = true;
             unsubscribe();
+            watchWaiters.delete(finish);
             clearTimeout(timer);
             resolve(current());
           };
           const timer = setTimeout(finish, 25_000);
           unsubscribe = scheduler.subscribe(finish);
+          watchWaiters.add(finish);
           signal?.addEventListener?.('abort', finish, { once: true });
         });
       }

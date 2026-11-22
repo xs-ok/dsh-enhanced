@@ -177,6 +177,7 @@ window.__ModuleLoader__.load({
         'sync.probe': 'Check',
         'sync.run': 'Sync now',
         'sync.running': 'Syncing…',
+        'sync.done': 'Sessions synced',
         'sync.never': 'Not run yet.',
         'sync.last': 'Last run: {time} · {result} · {ms} ms',
         'sync.result.ok': 'ok',
@@ -378,6 +379,7 @@ window.__ModuleLoader__.load({
         'sync.probe': '检查',
         'sync.run': '立即同步',
         'sync.running': '正在同步…',
+        'sync.done': '会话同步完成',
         'sync.never': '尚未运行。',
         'sync.last': '上次同步：{time} · {result} · {ms} ms',
         'sync.result.ok': '成功',
@@ -621,6 +623,7 @@ window.__ModuleLoader__.load({
         overwrite: { open: false, direction: 'cloud', busy: false, preview: null, error: null },
         restartConfirm: false,
         syncLive: false,
+        syncDone: false,
         restartCountdown: null,
     presetEdit: null,
         presetReplace: null,
@@ -1000,10 +1003,28 @@ window.__ModuleLoader__.load({
          * badge updates at once and the idle cost is one open request.
          */
         async watchSyncState() {
+          let lastUserSeq = null;
           for (;;) {
             try {
               const data = await runtime.rpc('sync.watch');
-              store.set({ syncLive: data?.auto?.running === true });
+              // A new user message (in any session) is the send signal the host sees.
+              if (Number.isFinite(data?.userSeq)) {
+                if (lastUserSeq === null) lastUserSeq = data.userSeq;
+                else if (data.userSeq > lastUserSeq) {
+                  lastUserSeq = data.userSeq;
+                  if (store.get().syncDone === true) store.set({ syncDone: false });
+                }
+              }
+              const running = data?.auto?.running === true;
+              const wasRunning = store.get().syncLive === true;
+              if (running) {
+                store.set({ syncLive: true, syncDone: false });
+              } else if (wasRunning) {
+                // The run just finished: keep a short "done" line until a click.
+                store.set({ syncLive: false, syncDone: true });
+              } else {
+                store.set({ syncLive: false });
+              }
             } catch {
               // A dropped connection only means a short pause before retrying.
               await new Promise((resolve) => { window.setTimeout(resolve, 3000); });
@@ -1024,12 +1045,15 @@ window.__ModuleLoader__.load({
         },
         async runSyncNow() {
           if (state.sync.busy) return;
-          store.set({ sync: { ...state.sync, busy: true, error: null } });
+          store.set({ sync: { ...state.sync, busy: true, error: null }, syncDone: false });
           store.toastBusy(runtime.t('sync.running'));
           try {
             const data = await runtime.rpc('sync.run');
             store.clearToast();
-            store.set({ sync: { ...state.sync, busy: false, state: data, error: null } });
+            store.set({
+              sync: { ...state.sync, busy: false, state: data, error: null },
+              syncDone: data?.ok !== false,
+            });
             store.toast(
               data?.ok === false ? 'error' : 'success',
               data?.ok === false
@@ -2883,39 +2907,127 @@ const displayName = (value) => {
     }
 
     /**
-     * A small right-aligned line under the composer while an automatic sync runs.
+     * The automatic-sync hint, parked on the composer status row.
      *
-     * Text and spinner follow the surrounding system text: no background, the
-     * secondary label colour, 12 px, with the icon inheriting the same colour.
+     * The dock entry itself renders nothing: it only marks where the row is. The
+     * visible node lives on document.body and is aligned to the row's own measured
+     * rectangle on every layout change, so it keeps that row's baseline and right
+     * edge without hard-coded offsets.
      */
     function SyncRunningBadge() {
       const state = useStore();
-      if (state.syncLive !== true) return null;
-      return h('div', {
-        className: 'dshe-sync-inline',
-        style: {
-          display: 'flex',
-          justifyContent: 'flex-end',
-          alignItems: 'center',
-          gap: '6px',
-          padding: '0 10px 2px',
-          fontSize: '12px',
-          lineHeight: '16px',
-          color: 'var(--dsw-alias-label-secondary, currentColor)',
-          pointerEvents: 'none',
-        },
-      },
-        h('span', null, runtime.t('sync.running')),
-        h('svg', {
-          className: 'dshe-toast-spinner',
-          viewBox: '0 0 16 16',
-          width: '12',
-          height: '12',
-          'aria-hidden': 'true',
-          style: { flex: 'none' },
-        },
-          h('circle', { cx: '8', cy: '8', r: '6', fill: 'none', stroke: 'currentColor', strokeOpacity: '0.25', strokeWidth: '2' }),
-          h('circle', { cx: '8', cy: '8', r: '6', fill: 'none', stroke: 'currentColor', strokeWidth: '2', strokeLinecap: 'round', strokeDasharray: '26 12' })));
+      // Manual runs own their centred toast, but the status line follows them too.
+      const live = state.syncLive === true || state.sync.busy === true;
+      const done = state.syncDone === true;
+      const show = live || done;
+      const markerRef = React.useRef(null);
+
+      React.useEffect(() => {
+        if (!show) return undefined;
+        const holder = markerRef.current;
+        if (holder === null) return undefined;
+        const ownRow = holder.parentElement;
+        const dock = ownRow === null ? null : ownRow.parentElement;
+        if (dock === null) return undefined;
+
+        const node = document.createElement('div');
+        node.className = 'dshe-sync-inline';
+        node.style.cssText = [
+          'position:fixed',
+          'z-index:2147483001',
+          'pointer-events:none',
+          'display:inline-flex',
+          'align-items:center',
+          'gap:6px',
+          'font-size:12px',
+          'line-height:16px',
+          'color:var(--dsw-alias-label-secondary, currentColor)',
+          'white-space:nowrap',
+        ].join(';');
+        const label = document.createElement('span');
+        label.textContent = runtime.t(live ? 'sync.running' : 'sync.done');
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', live ? 'dshe-toast-spinner' : 'dshe-sync-done');
+        svg.setAttribute('viewBox', '0 0 16 16');
+        svg.setAttribute('width', '12');
+        svg.setAttribute('height', '12');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.style.flex = 'none';
+        if (live) {
+          const track = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          track.setAttribute('cx', '8');
+          track.setAttribute('cy', '8');
+          track.setAttribute('r', '6');
+          track.setAttribute('fill', 'none');
+          track.setAttribute('stroke', 'currentColor');
+          track.setAttribute('stroke-opacity', '0.25');
+          track.setAttribute('stroke-width', '2');
+          const arc = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          arc.setAttribute('cx', '8');
+          arc.setAttribute('cy', '8');
+          arc.setAttribute('r', '6');
+          arc.setAttribute('fill', 'none');
+          arc.setAttribute('stroke', 'currentColor');
+          arc.setAttribute('stroke-width', '2');
+          arc.setAttribute('stroke-linecap', 'round');
+          arc.setAttribute('stroke-dasharray', '26 12');
+          svg.appendChild(track);
+          svg.appendChild(arc);
+        } else {
+          // Finished: a quiet tick instead of the turning ring.
+          const tick = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          tick.setAttribute('d', 'M3.5 8.5 L6.5 11.5 L12.5 4.5');
+          tick.setAttribute('fill', 'none');
+          tick.setAttribute('stroke', 'currentColor');
+          tick.setAttribute('stroke-width', '1.8');
+          tick.setAttribute('stroke-linecap', 'round');
+          tick.setAttribute('stroke-linejoin', 'round');
+          svg.appendChild(tick);
+        }
+        node.appendChild(label);
+        node.appendChild(svg);
+        document.body.appendChild(node);
+
+        // The last foreign row of the dock is the status line; our own row keeps
+        // its normal place, so the shipped text never moves.
+        const measure = () => {
+          if (!node.isConnected) return;
+          const rows = Array.from(dock.children).filter((child) => child !== ownRow);
+          const anchor = rows.length > 0 ? rows[rows.length - 1] : dock;
+          const rect = anchor.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) return;
+          const width = node.offsetWidth;
+          const height = node.offsetHeight;
+          const right = Math.max(12, window.innerWidth - 16);
+          const left = Math.max(12, right - width);
+          const top = Math.max(0, rect.top + (rect.height - height) / 2);
+          node.style.left = Math.round(left) + 'px';
+          node.style.top = Math.round(top) + 'px';
+        };
+
+        measure();
+        const frame = window.requestAnimationFrame(measure);
+        // One late pass covers fonts and row heights that settle after the frame.
+        const settle = window.setTimeout(measure, 300);
+        window.addEventListener('resize', measure);
+        // The row only moves when its container changes size, so observing the dock
+        // is enough; no timer keeps running while the line just sits there.
+        let observer = null;
+        if (typeof ResizeObserver === 'function') {
+          observer = new ResizeObserver(() => { measure(); });
+          observer.observe(dock);
+        }
+        return () => {
+          window.cancelAnimationFrame(frame);
+          window.clearTimeout(settle);
+          window.removeEventListener('resize', measure);
+          if (observer !== null) observer.disconnect();
+          node.remove();
+        };
+      }, [show, live]);
+
+      if (!show) return null;
+      return h('span', { ref: markerRef, style: { display: 'none' } });
     }
 
     /** Environment check result, including the "export report" path. */
