@@ -3488,6 +3488,20 @@ const displayName = (value) => {
           return () => tag.remove();
         }, 'dsh-enhanced: styles');
 
+        // Ctrl+Alt+Shift+T starts one immediate sync while this window has focus.
+        ctx.effect(() => {
+          const onKeyDown = (event) => {
+            if (!event.ctrlKey || !event.altKey || !event.shiftKey) return;
+            if (event.code !== 'KeyT' && (event.key ?? '').toLowerCase() !== 't') return;
+            if (event.repeat) return;
+            event.preventDefault();
+            event.stopPropagation();
+            void runtime.store.runSyncNow();
+          };
+          window.addEventListener('keydown', onKeyDown, true);
+          return () => window.removeEventListener('keydown', onKeyDown, true);
+        }, 'dsh-enhanced: sync hotkey');
+
         ctx.effect(() => {
           const onKeyDown = (event) => {
             if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
