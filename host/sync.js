@@ -506,7 +506,16 @@ async function appendHistory(file, record) {
     paths: record.summary?.paths ?? null,
     missing: record.summary?.missing ?? null,
     log: Array.isArray(record.log) ? record.log.slice(-60) : [],
+    // File lists per log line, bounded so the history file stays small.
+    details: Array.isArray(record.details)
+      ? record.details.map((files) => (Array.isArray(files) ? files.slice(0, 40) : []))
+      : [],
   });
+  // Only the newest runs keep their file lists; older rows stay text-only.
+  const DETAIL_KEEP = 20;
+  for (let i = DETAIL_KEEP; i < list.length; i += 1) {
+    if (Object.prototype.hasOwnProperty.call(list[i], 'details')) delete list[i].details;
+  }
   await writeJson(file, pruneHistory(list));
 }
 

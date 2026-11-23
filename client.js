@@ -621,7 +621,7 @@ window.__ModuleLoader__.load({
         deleteBusy: false,
         deleteError: null,
         move: { open: false, sessionId: null, title: '', loading: false, current: null, workspaces: [], targetId: null, error: null, busy: false },
-        sync: { loading: false, busy: false, target: null, state: null, error: null, showLog: false, webdav: null, webdavBusy: false, history: [], historyOpen: null, historyLimit: 5, auto: null },
+        sync: { loading: false, busy: false, target: null, state: null, error: null, showLog: false, webdav: null, webdavBusy: false, history: [], historyOpen: null, historyLimit: 20, auto: null },
         overwrite: { open: false, direction: 'cloud', busy: false, preview: null, error: null },
         restartConfirm: false,
         syncLive: false,
@@ -1331,10 +1331,10 @@ window.__ModuleLoader__.load({
         },
         toggleSyncLog() {
           const open = state.sync.showLog !== true;
-          store.set({ sync: { ...state.sync, showLog: open, historyOpen: open ? 0 : null, historyLimit: 5 } });
+          store.set({ sync: { ...state.sync, showLog: open, historyOpen: open ? 0 : null, historyLimit: 20 } });
         },
         showMoreHistory() {
-          store.set({ sync: { ...state.sync, historyLimit: (Number(state.sync.historyLimit) || 5) + 50 } });
+          store.set({ sync: { ...state.sync, historyLimit: (Number(state.sync.historyLimit) || 20) + 50 } });
         },
         openHistory(index) {
           const next = state.sync.historyOpen === index ? null : index;
@@ -2683,7 +2683,7 @@ const displayName = (value) => {
             ? h('div', {},
                 h('div', { className: 'dshe-row-desc' }, runtime.t('sync.historyCount', { n: logEntries(state).length })),
                 h('div', { className: 'dshe-log-list dshe-log-scroll' },
-                  logEntries(state).slice(0, Number(state.sync.historyLimit) || 5).map((item, index) => {
+                  logEntries(state).slice(0, Number(state.sync.historyLimit) || 20).map((item, index) => {
                     const open = state.sync.historyOpen === index;
                     return h('div', { key: item.at ?? String(index), className: 'dshe-log-item' },
                       h('button', {
@@ -2696,7 +2696,7 @@ const displayName = (value) => {
                       open ? h('div', { className: 'dshe-sync-log dshe-log-body' }, (item.log ?? []).map((line, lineIndex) => h(LogLine, { key: lineIndex, line, files: item.details?.[lineIndex] ?? [] }))) : null);
                   }),
                 ),
-                logEntries(state).length > (Number(state.sync.historyLimit) || 5)
+                logEntries(state).length > (Number(state.sync.historyLimit) || 20)
                   ? h('button', { type: 'button', className: 'dshe-action', onClick: () => runtime.store.showMoreHistory() }, runtime.t('sync.more'))
                   : null,
               )
