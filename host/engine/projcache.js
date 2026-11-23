@@ -56,6 +56,13 @@ function setTitle(doc, winner) {
   record.rows.title = winner;
 }
 
+/** Whether one shard still claims its session was never used. */
+function isBlank(doc) {
+  if (doc === null || typeof doc !== 'object') return false;
+  const record = doc.record !== undefined && doc.record !== null ? doc.record : doc;
+  return record?.rows?.sessionListMetadata?.val?.blank === true;
+}
+
 /** Map of session id -> { file, mtime } for one shard directory. */
 async function indexShards(dir) {
   const map = new Map();
@@ -154,6 +161,22 @@ export async function mergeProjcacheTitles(deps) {
           mirrored += 1;
         } catch {
           // A shard that cannot be mirrored is retried next round; never abort.
+        }
+      } else {
+        mirrored += 1;
+      }
+    } else if (localEntry !== undefined && sharedEntry !== undefined
+      && isBlank(sharedDoc) && !isBlank(localDoc)) {
+      // The local shard says the session has a conversation while the share still
+      // says it is empty: overwrite the share, or every other machine that pulls
+      // it keeps hiding the conversation.
+      if (apply) {
+        try {
+          await fsp.copyFile(localEntry.file, sharedEntry.file);
+          await fsp.utimes(sharedEntry.file, new Date(localEntry.mtime), new Date(localEntry.mtime)).catch(() => {});
+          mirrored += 1;
+        } catch {
+          // Retried next round.
         }
       } else {
         mirrored += 1;

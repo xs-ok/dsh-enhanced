@@ -9,7 +9,7 @@ import { promises as fsp } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { scanSessions, projectKey } from './scan.js';
-import { buildBlankGuard } from './blank-guard.js';
+import { buildBlankGuard, repairPulledSessions } from './blank-guard.js';
 import { lastContentSeq, readSessionFile, rewriteCwd, writeSessionFile } from './session.js';
 import {
   SESSION_LEDGER,
@@ -325,6 +325,7 @@ export async function syncSessions(deps) {
   // 4. Pull shared sessions this machine lacks or holds in an older state.
   let created = 0;
   let missing = 0;
+  const pulledLocal = [];
   for (const [id, entry] of refreshedShare) {
     if (ledger.deleted[id] !== undefined) continue;
     if (guardedIds.has(id)) continue;
@@ -357,11 +358,25 @@ export async function syncSessions(deps) {
         await writeSessionFile(target, texts);
         const seconds = entry.mtime / 1000;
         await fsp.utimes(target, seconds, seconds).catch(() => {});
+        pulledLocal.push({ id, file: target });
       }
       pulled += 1;
       if (pulledIds.length < 300) pulledIds.push(id);
     } catch (error) {
       failed.push({ id, error: String(error?.message ?? error) });
+    }
+  }
+
+  // The regular guard ran before these sessions existed locally, so a shard that
+  // still says "blank" is repaired now, in the same run, before the config phase
+  // pushes it back to the share.
+  let blankRepaired = 0;
+  if (apply && pulledLocal.length > 0) {
+    try {
+      const fixed = await repairPulledSessions({ items: pulledLocal, cacheDir, apply });
+      blankRepaired = fixed.repaired;
+    } catch {
+      blankRepaired = 0;
     }
   }
 
@@ -376,5 +391,5 @@ export async function syncSessions(deps) {
     await writeJsonAtomic(legacyFile, { version: 1, deleted: {} });
   }
 
-  return { pushed, pulled, skipped, revived, tombstoned, created, missing, failed, trashed: Object.keys(ledger.deleted).length, pushedIds, pulledIds, blankGuard };
+  return { pushed, pulled, skipped, revived, tombstoned, created, missing, failed, trashed: Object.keys(ledger.deleted).length, pushedIds, pulledIds, blankGuard, blankRepaired };
 }

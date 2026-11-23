@@ -14,6 +14,9 @@
  *    repair it (`blank = false`, `seq` = last event) and let the session sync;
  *  - `blank === true` and the log holds no turn: a genuinely empty session —
  *    keep it, its shard and its recycle-bin copy out of the share.
+ *  - a shard with no log at all: the session was created and abandoned before
+ *    the first event, so the shard is the only trace of it — that shard stays
+ *    out of the share too.
  *
  * A log that cannot be judged (unreadable file, Node without zstd) is left alone:
  * nothing is skipped and nothing is rewritten, so a broken file can never block a
@@ -127,6 +130,41 @@ async function repairBlank(file, shard, seq) {
   await writeJsonAtomic(file, shard.doc);
 }
 
+/**
+ * Repair the shards of sessions that were just pulled from the share.
+ *
+ * The regular guard runs before the shared sessions land locally, so a session
+ * whose content arrives in this very run is invisible to it. This pass only
+ * looks at the files the pull step wrote, which keeps the extra work to the
+ * sessions that actually changed.
+ *
+ * @returns how many shards were repaired.
+ */
+export async function repairPulledSessions(deps) {
+  const { items, cacheDir, apply = true } = deps;
+  const result = { repaired: 0, checked: 0 };
+  for (const item of items) {
+    result.checked += 1;
+    const file = shardPath(cacheDir, item.id);
+    if ((await shardStamp(file)) < 0) continue;
+    const shard = await readBlank(file);
+    if (shard === null || shard.blank !== true) continue;
+    const facts = await readLogFacts(item.file);
+    if (facts === null || facts.hasTurn !== true) continue;
+    if (!apply) {
+      result.repaired += 1;
+      continue;
+    }
+    try {
+      await repairBlank(file, shard, facts.lastSeq);
+      result.repaired += 1;
+    } catch {
+      // A failed repair is retried on the next sync.
+    }
+  }
+  return result;
+}
+
 /** Shape of the per-machine memo; bump when the entry fields change. */
 const STATE_VERSION = 1;
 
@@ -149,6 +187,32 @@ async function shardStamp(file) {
 }
 
 /**
+ * Shards that own no log at all.
+ *
+ * DSH writes the projection shard the moment a session is created, but only
+ * appends the log once the first event lands. A session created and then
+ * abandoned — or one being created right now — therefore leaves a shard that no
+ * scan of the sessions root can see. It carries no conversation; mirroring it
+ * plants an empty entry on every machine that pulls it later.
+ */
+async function orphanShardIds(cacheDir, sessions) {
+  let names;
+  try {
+    names = await fsp.readdir(cacheDir);
+  } catch {
+    return [];
+  }
+  const ids = [];
+  for (const name of names) {
+    if (!name.startsWith('session-') || !name.endsWith('.json')) continue;
+    const id = name.slice(0, -5);
+    if (sessions.has(id)) continue;
+    ids.push(id);
+  }
+  return ids.sort();
+}
+
+/**
  * Decide which sessions must stay out of the share this run.
  *
  * The caller already scans the sessions root for the sync itself, so it hands
@@ -164,7 +228,7 @@ async function shardStamp(file) {
  */
 export async function buildBlankGuard(deps) {
   const { localRoot, cacheDir, apply = true, stateFile = null } = deps;
-  const result = { skipIds: new Set(), skipped: 0, repaired: 0, unreadable: 0, details: [] };
+  const result = { skipIds: new Set(), skipped: 0, repaired: 0, unreadable: 0, orphaned: 0, details: [] };
   let sessions = deps.sessions;
   if (sessions === undefined) {
     try {
@@ -225,6 +289,16 @@ export async function buildBlankGuard(deps) {
       }
     }
     next[id] = { shard: repaired ? await shardStamp(file) : shardMtime, log: logStamp, skip };
+  }
+
+  // A shard whose session has no log holds no conversation, and the scan above
+  // cannot see it; without this pass the shard would travel to the share alone.
+  // No memo is kept: the verdict must be recomputed once a log appears.
+  for (const id of await orphanShardIds(cacheDir, sessions)) {
+    result.skipIds.add(id);
+    result.skipped += 1;
+    result.orphaned += 1;
+    if (result.details.length < MAX_REPORTED_IDS) result.details.push(id);
   }
 
   if (stateFile !== null && apply && JSON.stringify(next) !== JSON.stringify(previous?.entries ?? {})) {

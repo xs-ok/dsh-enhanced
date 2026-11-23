@@ -121,7 +121,9 @@ export function installSyncScheduler(ctx, deps) {
  */
 async function restartForNewSessions(record, context) {
   const pulled = Number(record?.summary?.sessions?.pulled) || Number(record?.summary?.sessions?.created) || 0;
-  if (pulled <= 0) return false;
+  const repaired = Number(record?.summary?.blankGuard?.repaired) || 0;
+  // A repaired shard changes what the list shows just like a new session does.
+  if (pulled <= 0 && repaired <= 0) return false;
   const { paths, settings, agents } = context;
   const busy = (agents?.list?.() ?? []).some((agent) => agent?.status === 'running');
   if (busy) {
@@ -147,7 +149,7 @@ async function restartForNewSessions(record, context) {
   } catch {
     // A missing marker only means the next run may restart sooner.
   }
-  trace(`restarting for ${String(pulled)} new sessions`);
+  trace(`restarting for ${String(pulled)} pulled / ${String(repaired)} repaired`);
   await restartApplication(paths);
   return true;
 }
