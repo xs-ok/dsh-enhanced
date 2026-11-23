@@ -176,6 +176,7 @@ window.__ModuleLoader__.load({
         'sync.attachments': 'Sync attachments',
         'sync.probe': 'Check',
         'sync.run': 'Sync now',
+        'sync.run.hint': 'Ctrl+Alt+Shift+T',
         'sync.running': 'Syncing…',
         'sync.done': 'Sessions synced',
         'sync.never': 'Not run yet.',
@@ -378,6 +379,7 @@ window.__ModuleLoader__.load({
         'sync.attachments': '同步附件',
         'sync.probe': '检查',
         'sync.run': '立即同步',
+        'sync.run.hint': 'Ctrl+Alt+Shift+T',
         'sync.running': '正在同步…',
         'sync.done': '会话同步完成',
         'sync.never': '尚未运行。',
@@ -2625,6 +2627,7 @@ const displayName = (value) => {
             h('button', {
               type: 'button',
               className: 'dshe-action',
+              title: runtime.t('sync.run.hint'),
               disabled: state.sync.busy === true,
               onClick: () => runtime.store.runSyncNow(),
             }, runtime.t('sync.run')),
