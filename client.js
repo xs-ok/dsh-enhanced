@@ -718,14 +718,23 @@ window.__ModuleLoader__.load({
           // Launch-time catch-up: unconditional on the sync switch, but it must not
           // run while a turn is in progress.
           if (store.get().sync.busy === true) return;
+          // The composer status line follows the launch run just like a manual one.
+          store.set({ sync: { ...store.get().sync, busy: true, error: null }, syncDone: false });
           try {
             const data = await runtime.rpc('sync.run', { quiet: true });
-            if (data?.skipped === 'busy') return;
-            store.set({ sync: { ...store.get().sync, state: data, error: null } });
+            if (data?.skipped === 'busy') {
+              store.set({ sync: { ...store.get().sync, busy: false } });
+              return;
+            }
+            store.set({
+              sync: { ...store.get().sync, busy: false, state: data, error: null },
+              syncDone: data?.ok !== false,
+            });
             await store.loadSync();
             const pulled = Number(data?.summary?.sessions?.pulled) || Number(data?.summary?.sessions?.created) || 0;
             if (pulled > 0) store.restartSoon('restart.reason.sync');
           } catch (error) {
+            store.set({ sync: { ...store.get().sync, busy: false } });
             console.warn('[dsh-enhanced] startup sync failed:', error);
           }
         },
