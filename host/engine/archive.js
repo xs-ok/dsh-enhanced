@@ -104,16 +104,30 @@ export function pruneArchiveEvents(events, keepIds) {
   return { events: kept, removed };
 }
 
-/** Drop ids whose latest event says `active`. */
+/**
+ * Apply the merged event table to this machine's archived set.
+ *
+ * An `active` event releases a local entry; an `archived` event from another
+ * machine adds one, so archiving propagates in both directions.
+ */
 export function applyArchiveEvents(archived, events) {
-  const kept = [];
+  const own = archived instanceof Set ? archived : new Set(archived ?? []);
+  const kept = new Set();
   const released = [];
-  for (const id of archived) {
+  const added = [];
+  for (const id of own) {
     const event = events[id];
     if (event !== undefined && event.state === 'active') released.push(id);
-    else kept.push(id);
+    else kept.add(id);
   }
-  return { kept, released };
+  for (const [id, event] of Object.entries(events)) {
+    if (event?.state !== 'archived') continue;
+    if (own.has(id)) continue;
+    if (kept.has(id)) continue;
+    kept.add(id);
+    added.push(id);
+  }
+  return { kept: [...kept], released, added };
 }
 
 /**
@@ -128,7 +142,9 @@ export async function syncArchiveState(deps) {
   const incoming = diffArchiveEvents(localArchived, previous, machineId);
   const merged = mergeArchiveEvents(existing, incoming);
   if (apply && Object.keys(incoming).length > 0) await writeArchiveEvents(stateDir, merged);
-  const { kept, released } = applyArchiveEvents(localArchived, merged);
+  const { kept, released, added } = applyArchiveEvents(localArchived, merged);
   if (apply) await writeArchiveSnapshot(stateDir, machineId, kept);
-  return { archived: kept, released, emitted: incoming, events: merged };
+  // Any difference against the local set came from the share, so it needs a
+  // restart to show; a purely local change does not.
+  return { archived: kept, released, added, changed: released.length + added.length, emitted: incoming, events: merged };
 }

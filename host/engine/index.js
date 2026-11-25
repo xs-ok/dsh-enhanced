@@ -142,7 +142,7 @@ async function runSyncJsInner(deps) {
 
   let sessions = { pushed: 0, pulled: 0, skipped: 0, created: 0, missing: 0, aborted: null };
   let prune = { quarantined: 0, hardDeleted: 0, sharedDeleted: 0, kept: 0, throttled: 0, quarantinePurged: 0 };
-  let archive = { archived: [], released: [], events: {} };
+  let archive = { archived: [], released: [], added: [], changed: 0, events: {} };
   let workspace = { local: null, shared: null, missing: [] };
   let projcache = { parsed: 0, updated: 0, mirrored: 0, untouched: 0 };
   let pluginList = { count: 0, file: '' };
@@ -300,7 +300,7 @@ async function runSyncJsInner(deps) {
       titleMerge: projcache,
       blankGuard: { skipped: sessions.blankGuard?.skipped ?? 0, repaired: (sessions.blankGuard?.repaired ?? 0) + (sessions.blankRepaired ?? 0) },
       plugins: pluginList.count,
-      archive: { released: archive.released.length, archived: archive.archived.length, eventsPruned: prunedEvents.removed },
+      archive: { released: archive.released.length, archived: archive.archived.length, changed: archive.changed ?? 0, eventsPruned: prunedEvents.removed },
       missing: { sessions: sessions.missing ?? 0, groups: missingGroups.length },
       paths: { created: sessions.created ?? 0, failed: sessions.missing ?? 0 },
     };
@@ -335,7 +335,7 @@ async function runSyncJsInner(deps) {
     titleMerge: projcache,
     blankGuard: { skipped: sessions.blankGuard?.skipped ?? 0, repaired: (sessions.blankGuard?.repaired ?? 0) + (sessions.blankRepaired ?? 0) },
     plugins: pluginList.count,
-    archive: { released: archive.released.length, archived: archive.archived.length, eventsPruned: prunedEvents.removed },
+    archive: { released: archive.released.length, archived: archive.archived.length, changed: archive.changed ?? 0, eventsPruned: prunedEvents.removed },
     missing: { sessions: sessions.missing ?? 0, groups: missingGroups.length },
     paths: { created: sessions.created ?? 0, failed: sessions.missing ?? 0 },
   };

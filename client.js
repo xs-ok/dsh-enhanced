@@ -735,7 +735,8 @@ window.__ModuleLoader__.load({
             await store.loadSync();
             const pulled = Number(data?.summary?.sessions?.pulled) || Number(data?.summary?.sessions?.created) || 0;
             const repaired = Number(data?.summary?.blankGuard?.repaired) || 0;
-            if (pulled > 0 || repaired > 0) store.restartSoon('restart.reason.sync');
+            const archiveChanged = Number(data?.summary?.archive?.changed) || 0;
+            if (pulled > 0 || repaired > 0 || archiveChanged > 0) store.restartSoon('restart.reason.sync');
           } catch (error) {
             store.set({ sync: { ...store.get().sync, busy: false } });
             console.warn('[dsh-enhanced] startup sync failed:', error);
@@ -1075,7 +1076,8 @@ window.__ModuleLoader__.load({
             await store.loadSync();
             const pulled = Number(data?.summary?.sessions?.pulled) || Number(data?.summary?.sessions?.created) || 0;
             const repaired = Number(data?.summary?.blankGuard?.repaired) || 0;
-            if (pulled > 0 || repaired > 0) {
+            const archiveChanged = Number(data?.summary?.archive?.changed) || 0;
+            if (pulled > 0 || repaired > 0 || archiveChanged > 0) {
               store.restartSoon('restart.reason.sync');
             }
           } catch (error) {
