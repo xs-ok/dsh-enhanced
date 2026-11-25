@@ -234,6 +234,13 @@ async function runSyncJsInner(deps) {
         const merged = new Set([...own, ...effective].filter((id) => id && !released.has(id)));
         doc.global.archivedSessionIds = [...merged].sort();
       }
+      // What the merge actually produced for this machine decides whether the list
+      // changes: it covers both archive events and ids arriving via workspace.json.
+      const finalLocalArchived = new Set(workspace.local.global?.archivedSessionIds ?? []);
+      let mergedArchiveChanged = 0;
+      for (const id of finalLocalArchived) if (!archivedBefore.has(id)) mergedArchiveChanged += 1;
+      for (const id of archivedBefore) if (!finalLocalArchived.has(id)) mergedArchiveChanged += 1;
+      archive.changed = mergedArchiveChanged;
       if (apply) {
         if (validWorkspaceDoc(workspace.local)) {
           await writeJson(path.join(dshHome, 'storages', 'workspace.json'), workspace.local);
