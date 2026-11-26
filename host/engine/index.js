@@ -227,6 +227,12 @@ async function runSyncJsInner(deps) {
       if (apply && prunedEvents.removed > 0) await writeArchiveEvents(stateDir, prunedEvents.events);
 
       const released = new Set(archive.released);
+      // An active event must also release ids this machine no longer lists: the
+      // local document dropped them when the reader unarchived, and without this
+      // the union below would add them straight back from the shared document.
+      for (const [id, event] of Object.entries(prunedEvents.events ?? archive.events ?? {})) {
+        if (event?.state === 'active') released.add(id);
+      }
       const effective = archive.archived;
       for (const doc of [workspace.local, workspace.shared]) {
         doc.global = doc.global ?? {};
